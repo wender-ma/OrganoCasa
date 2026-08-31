@@ -25,3 +25,4 @@ try {
   console.error('❌ Erro na migração:', err.stderr || err.message);
   process.exit(1);
 }
+

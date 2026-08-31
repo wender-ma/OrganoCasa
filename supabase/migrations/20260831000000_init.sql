@@ -139,3 +139,4 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.reminders;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.household_members;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.receipts;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.price_records;
+

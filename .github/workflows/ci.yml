@@ -25,3 +25,4 @@ jobs:
 
     - name: Run TypeScript & Vite Build
       run: npm run build
+
