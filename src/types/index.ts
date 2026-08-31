@@ -68,6 +68,7 @@ export interface ShoppingListItem {
   isChecked: boolean;
   notes?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface HouseholdMember {

@@ -45,6 +45,9 @@ export const INITIAL_MEMBERS: HouseholdMember[] = [
   }
 ];
 
+// Fixed epoch date so seed data NEVER outranks real user data
+const SEED_TIMESTAMP = '2020-01-01T00:00:00.000Z';
+
 export const INITIAL_PRODUCTS: Array<{
   product: Product;
   history: PriceRecord[];
@@ -61,11 +64,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'pct',
       averagePrice: 28.90,
       lastPrice: 29.50,
-      lastPriceDate: '2026-08-15T14:30:00.000Z',
+      lastPriceDate: '2020-01-01T14:30:00.000Z',
       lastStore: 'Supermercado Central',
       purchaseCount: 3,
-      createdAt: '2026-06-01T10:00:00.000Z',
-      updatedAt: '2026-08-15T14:30:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -75,7 +78,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'pct',
         storeName: 'Atacadão',
-        date: '2026-06-10T11:00:00.000Z'
+        date: '2020-01-01T11:00:00.000Z'
       },
       {
         id: 'hist-2',
@@ -84,7 +87,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'pct',
         storeName: 'Carrefour',
-        date: '2026-07-12T15:00:00.000Z'
+        date: '2020-01-01T15:00:00.000Z'
       },
       {
         id: 'hist-3',
@@ -93,7 +96,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'pct',
         storeName: 'Supermercado Central',
-        date: '2026-08-15T14:30:00.000Z'
+        date: '2020-01-01T14:30:00.000Z'
       }
     ]
   },
@@ -109,11 +112,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'pct',
       averagePrice: 7.80,
       lastPrice: 8.20,
-      lastPriceDate: '2026-08-15T14:30:00.000Z',
+      lastPriceDate: '2020-01-01T14:30:00.000Z',
       lastStore: 'Supermercado Central',
       purchaseCount: 2,
-      createdAt: '2026-07-01T10:00:00.000Z',
-      updatedAt: '2026-08-15T14:30:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -123,7 +126,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 2,
         unit: 'pct',
         storeName: 'Atacadão',
-        date: '2026-07-12T15:00:00.000Z'
+        date: '2020-01-01T15:00:00.000Z'
       },
       {
         id: 'hist-5',
@@ -132,7 +135,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 2,
         unit: 'pct',
         storeName: 'Supermercado Central',
-        date: '2026-08-15T14:30:00.000Z'
+        date: '2020-01-01T14:30:00.000Z'
       }
     ]
   },
@@ -148,11 +151,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'cx',
       averagePrice: 4.85,
       lastPrice: 4.99,
-      lastPriceDate: '2026-08-20T18:00:00.000Z',
+      lastPriceDate: '2020-01-01T18:00:00.000Z',
       lastStore: 'Pão de Açúcar',
       purchaseCount: 2,
-      createdAt: '2026-07-15T10:00:00.000Z',
-      updatedAt: '2026-08-20T18:00:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -162,7 +165,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 6,
         unit: 'cx',
         storeName: 'Atacadão',
-        date: '2026-07-25T09:00:00.000Z'
+        date: '2020-01-01T09:00:00.000Z'
       },
       {
         id: 'hist-7',
@@ -171,7 +174,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 4,
         unit: 'cx',
         storeName: 'Pão de Açúcar',
-        date: '2026-08-20T18:00:00.000Z'
+        date: '2020-01-01T18:00:00.000Z'
       }
     ]
   },
@@ -187,11 +190,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'pct',
       averagePrice: 17.50,
       lastPrice: 18.90,
-      lastPriceDate: '2026-08-15T14:30:00.000Z',
+      lastPriceDate: '2020-01-01T14:30:00.000Z',
       lastStore: 'Supermercado Central',
       purchaseCount: 2,
-      createdAt: '2026-07-01T10:00:00.000Z',
-      updatedAt: '2026-08-15T14:30:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -201,7 +204,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'pct',
         storeName: 'Atacadão',
-        date: '2026-07-10T14:00:00.000Z'
+        date: '2020-01-01T14:00:00.000Z'
       },
       {
         id: 'hist-9',
@@ -210,7 +213,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'pct',
         storeName: 'Supermercado Central',
-        date: '2026-08-15T14:30:00.000Z'
+        date: '2020-01-01T14:30:00.000Z'
       }
     ]
   },
@@ -226,11 +229,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'un',
       averagePrice: 36.90,
       lastPrice: 38.50,
-      lastPriceDate: '2026-08-10T12:00:00.000Z',
+      lastPriceDate: '2020-01-01T12:00:00.000Z',
       lastStore: 'Carrefour',
       purchaseCount: 2,
-      createdAt: '2026-07-01T10:00:00.000Z',
-      updatedAt: '2026-08-10T12:00:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -240,7 +243,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'un',
         storeName: 'Atacadão',
-        date: '2026-07-05T10:00:00.000Z'
+        date: '2020-01-01T10:00:00.000Z'
       },
       {
         id: 'hist-11',
@@ -249,7 +252,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'un',
         storeName: 'Carrefour',
-        date: '2026-08-10T12:00:00.000Z'
+        date: '2020-01-01T12:00:00.000Z'
       }
     ]
   },
@@ -263,11 +266,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'kg',
       averagePrice: 6.99,
       lastPrice: 7.49,
-      lastPriceDate: '2026-08-22T16:00:00.000Z',
+      lastPriceDate: '2020-01-01T16:00:00.000Z',
       lastStore: 'Hortifruti Natural',
       purchaseCount: 2,
-      createdAt: '2026-08-01T10:00:00.000Z',
-      updatedAt: '2026-08-22T16:00:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -277,7 +280,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1.5,
         unit: 'kg',
         storeName: 'Supermercado Central',
-        date: '2026-08-08T10:00:00.000Z'
+        date: '2020-01-01T10:00:00.000Z'
       },
       {
         id: 'hist-13',
@@ -286,7 +289,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1.2,
         unit: 'kg',
         storeName: 'Hortifruti Natural',
-        date: '2026-08-22T16:00:00.000Z'
+        date: '2020-01-01T16:00:00.000Z'
       }
     ]
   },
@@ -302,11 +305,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'cx',
       averagePrice: 19.90,
       lastPrice: 19.90,
-      lastPriceDate: '2026-08-15T14:30:00.000Z',
+      lastPriceDate: '2020-01-01T14:30:00.000Z',
       lastStore: 'Supermercado Central',
       purchaseCount: 1,
-      createdAt: '2026-08-15T14:30:00.000Z',
-      updatedAt: '2026-08-15T14:30:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -316,7 +319,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 1,
         unit: 'cx',
         storeName: 'Supermercado Central',
-        date: '2026-08-15T14:30:00.000Z'
+        date: '2020-01-01T14:30:00.000Z'
       }
     ]
   },
@@ -332,11 +335,11 @@ export const INITIAL_PRODUCTS: Array<{
       unit: 'un',
       averagePrice: 2.75,
       lastPrice: 2.89,
-      lastPriceDate: '2026-08-15T14:30:00.000Z',
+      lastPriceDate: '2020-01-01T14:30:00.000Z',
       lastStore: 'Supermercado Central',
       purchaseCount: 2,
-      createdAt: '2026-07-01T10:00:00.000Z',
-      updatedAt: '2026-08-15T14:30:00.000Z'
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     history: [
       {
@@ -346,7 +349,7 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 3,
         unit: 'un',
         storeName: 'Atacadão',
-        date: '2026-07-10T14:00:00.000Z'
+        date: '2020-01-01T14:00:00.000Z'
       },
       {
         id: 'hist-16',
@@ -355,29 +358,41 @@ export const INITIAL_PRODUCTS: Array<{
         quantity: 2,
         unit: 'un',
         storeName: 'Supermercado Central',
-        date: '2026-08-15T14:30:00.000Z'
+        date: '2020-01-01T14:30:00.000Z'
       }
     ]
   }
 ];
 
+export async function clearSeedData() {
+  await db.transaction('rw', [db.shoppingListItems, db.shoppingLists, db.reminders, db.products, db.priceRecords], async () => {
+    // Delete any items created with SEED_TIMESTAMP
+    await db.shoppingListItems.where('createdAt').equals(SEED_TIMESTAMP).delete();
+    await db.shoppingLists.where('createdAt').equals(SEED_TIMESTAMP).delete();
+    await db.reminders.where('createdAt').equals(SEED_TIMESTAMP).delete();
+    await db.products.where('createdAt').equals(SEED_TIMESTAMP).delete();
+  });
+}
+
 export async function seedDatabase() {
+  // If user is already logged in with a real session, do not inject seed items
+  const hasUserSession = typeof localStorage !== 'undefined' && localStorage.getItem('organocasa_user_session');
   const productsCount = await db.products.count();
-  if (productsCount > 0) return; // Already seeded
+  if (productsCount > 0 || hasUserSession) return;
 
   console.log('Seeding initial OrganoCasa database...');
 
   // 1. Members
   await db.householdMembers.bulkAdd(INITIAL_MEMBERS);
 
-  // 2. Default Shopping List
+  // 2. Default Shopping List with epoch timestamp
   const defaultList: ShoppingList = {
     id: 'list-default',
     title: 'Compras do Supermercado',
     isDefault: true,
     status: 'active',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    createdAt: SEED_TIMESTAMP,
+    updatedAt: SEED_TIMESTAMP
   };
   await db.shoppingLists.add(defaultList);
 
@@ -390,7 +405,7 @@ export async function seedDatabase() {
   // 4. Initial Items in the Shopping List
   const sampleListItems: ShoppingListItem[] = [
     {
-      id: 'item-1',
+      id: 'seed-item-1',
       listId: defaultList.id,
       productId: 'prod-arroz-5kg',
       name: 'Arroz Branco Tipo 1 5kg',
@@ -404,10 +419,11 @@ export async function seedDatabase() {
       lastPrice: 29.50,
       isChecked: false,
       notes: 'Priorizar Tio João, ou Camil como reserva',
-      createdAt: new Date().toISOString()
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     {
-      id: 'item-2',
+      id: 'seed-item-2',
       listId: defaultList.id,
       productId: 'prod-feijao-1kg',
       name: 'Feijão Carioca 1kg',
@@ -420,10 +436,11 @@ export async function seedDatabase() {
       averagePrice: 7.80,
       lastPrice: 8.20,
       isChecked: false,
-      createdAt: new Date().toISOString()
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     {
-      id: 'item-3',
+      id: 'seed-item-3',
       listId: defaultList.id,
       productId: 'prod-leite-integral-1l',
       name: 'Leite Integral UHT 1L',
@@ -435,11 +452,12 @@ export async function seedDatabase() {
       unit: 'cx',
       averagePrice: 4.85,
       lastPrice: 4.99,
-      isChecked: true, // Já pego no carrinho de exemplo
-      createdAt: new Date().toISOString()
+      isChecked: true,
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     {
-      id: 'item-4',
+      id: 'seed-item-4',
       listId: defaultList.id,
       productId: 'prod-cafe-500g',
       name: 'Café Torrado e Moído 500g',
@@ -452,10 +470,11 @@ export async function seedDatabase() {
       averagePrice: 17.50,
       lastPrice: 18.90,
       isChecked: false,
-      createdAt: new Date().toISOString()
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     {
-      id: 'item-5',
+      id: 'seed-item-5',
       listId: defaultList.id,
       productId: 'prod-banana-prata',
       name: 'Banana Prata',
@@ -467,15 +486,16 @@ export async function seedDatabase() {
       lastPrice: 7.49,
       isChecked: false,
       notes: 'Preferir mais verde para amadurecer',
-      createdAt: new Date().toISOString()
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     }
   ];
   await db.shoppingListItems.bulkAdd(sampleListItems);
 
-  // 5. Initial Reminders (including user's requested example)
+  // 5. Initial Reminders
   const initialReminders: Reminder[] = [
     {
-      id: 'rem-1',
+      id: 'seed-rem-1',
       title: 'Pegar itens na casa da sogra',
       description: 'Lembrar de passar no final da tarde de domingo',
       assignedMemberId: 'member-1',
@@ -484,29 +504,28 @@ export async function seedDatabase() {
         { id: 'chk-2', text: 'Manteiga caseira', isDone: true },
         { id: 'chk-3', text: 'Galão de água mineral', isDone: false }
       ],
-      dueDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+      dueDate: '2026-12-31',
       isCompleted: false,
       category: 'Família',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     },
     {
-      id: 'rem-2',
+      id: 'seed-rem-2',
       title: 'Descongelar carne para o almoço',
       description: 'Tirar o frango do freezer',
       assignedMemberId: 'member-2',
       checklist: [
         { id: 'chk-4', text: 'Tirar peito de frango do congelador', isDone: false }
       ],
-      dueDate: new Date().toISOString().split('T')[0],
+      dueDate: '2026-12-31',
       isCompleted: false,
       category: 'Cozinha',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: SEED_TIMESTAMP,
+      updatedAt: SEED_TIMESTAMP
     }
   ];
   await db.reminders.bulkAdd(initialReminders);
 
   console.log('OrganoCasa database successfully initialized!');
 }
-

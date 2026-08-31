@@ -468,18 +468,48 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
           {/* LOGGED IN: TAB 2 - SUPABASE STATUS */}
           {session && activeTab === 'supabase' && (
             <div className="space-y-3.5">
-              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 space-y-1.5">
-                <div className="flex items-center space-x-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
-                    Supabase Conectado & Operacional
-                  </span>
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                      Sincronização em Tempo Real (Supabase)
+                    </span>
+                  </div>
                 </div>
-                <p className="text-[11px] text-emerald-800 dark:text-emerald-300">
-                  Todas as 8 tabelas estão sincronizando em tempo real com seu projeto PostgreSQL.
+                <p className="text-[11px] text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                  Suas compras, listas e lembretes são sincronizados via WebSocket para todos os celulares da família conectados à mesma casa.
                 </p>
-                <div className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 pt-1">
-                  URL: https://zgsnsxwoufuffqchghqb.supabase.co
+                <div className="pt-1 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sqlScript = `-- SCHEMA SQL PARA O SUPABASE - ORGANOCASA
+CREATE TABLE IF NOT EXISTS public.households (id TEXT PRIMARY KEY, name TEXT NOT NULL, invite_code TEXT UNIQUE NOT NULL, created_by UUID, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.household_members (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, user_id UUID, name TEXT NOT NULL, color TEXT DEFAULT '#10b981', avatar_emoji TEXT DEFAULT '👤', is_default BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.shopping_lists (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, title TEXT NOT NULL, is_default BOOLEAN DEFAULT FALSE, status TEXT DEFAULT 'active', created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.shopping_list_items (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, list_id TEXT NOT NULL, product_id TEXT, name TEXT NOT NULL, category TEXT NOT NULL, brand TEXT, alternative_brands JSONB DEFAULT '[]'::jsonb, selected_brand TEXT, image_url TEXT, quantity NUMERIC NOT NULL DEFAULT 1, unit TEXT NOT NULL DEFAULT 'un', average_price NUMERIC DEFAULT 0, last_price NUMERIC DEFAULT 0, is_checked BOOLEAN DEFAULT FALSE, notes TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.products (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, name TEXT NOT NULL, category TEXT NOT NULL, brand TEXT, alternative_brands JSONB DEFAULT '[]'::jsonb, barcode TEXT, image_url TEXT, unit TEXT NOT NULL DEFAULT 'un', average_price NUMERIC DEFAULT 0, last_price NUMERIC DEFAULT 0, last_price_date TIMESTAMPTZ, last_store TEXT, purchase_count INT DEFAULT 0, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.reminders (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, assigned_member_id TEXT, checklist JSONB DEFAULT '[]'::jsonb, due_date TEXT, is_completed BOOLEAN DEFAULT FALSE, category TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.receipts (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, list_id TEXT, store_name TEXT NOT NULL, access_key TEXT, total_amount NUMERIC NOT NULL DEFAULT 0, purchase_date TIMESTAMPTZ DEFAULT NOW(), raw_type TEXT DEFAULT 'qr_code', items JSONB DEFAULT '[]'::jsonb, created_at TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.price_records (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, product_id TEXT NOT NULL, receipt_id TEXT, price NUMERIC NOT NULL DEFAULT 0, quantity NUMERIC NOT NULL DEFAULT 1, unit TEXT NOT NULL DEFAULT 'un', store_name TEXT NOT NULL, date TIMESTAMPTZ DEFAULT NOW(), created_at TIMESTAMPTZ DEFAULT NOW());
+ALTER TABLE public.households DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.household_members DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shopping_lists DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shopping_list_items DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reminders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.receipts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.price_records DISABLE ROW LEVEL SECURITY;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.shopping_lists, public.shopping_list_items, public.products, public.reminders, public.receipts, public.price_records;`;
+                      navigator.clipboard.writeText(sqlScript);
+                      showToast('Script SQL copiado! Cole no SQL Editor do Supabase.');
+                    }}
+                    className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-semibold hover:bg-emerald-100/50 transition-colors flex items-center space-x-1"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copiar Script SQL do Banco</span>
+                  </button>
                 </div>
               </div>
 

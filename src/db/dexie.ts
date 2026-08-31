@@ -23,10 +23,10 @@ export class OrganoCasaDatabase extends Dexie {
     this.version(1).stores({
       products: 'id, name, category, barcode, lastPrice, averagePrice, updatedAt',
       priceRecords: 'id, productId, receiptId, storeName, date',
-      shoppingLists: 'id, title, isDefault, status, createdAt',
-      shoppingListItems: 'id, listId, productId, name, category, isChecked, createdAt',
+      shoppingLists: 'id, title, isDefault, status, createdAt, updatedAt',
+      shoppingListItems: 'id, listId, productId, name, category, isChecked, createdAt, updatedAt',
       householdMembers: 'id, name',
-      reminders: 'id, assignedMemberId, isCompleted, dueDate, createdAt',
+      reminders: 'id, assignedMemberId, isCompleted, dueDate, createdAt, updatedAt',
       receipts: 'id, storeName, purchaseDate, createdAt'
     });
   }

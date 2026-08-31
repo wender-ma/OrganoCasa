@@ -36,7 +36,7 @@ export const RemindersView: React.FC = () => {
   const pendingCount = reminders.filter((r) => !r.isCompleted).length;
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-36 sm:pb-32">
       {/* Top Banner */}
       <div className="bg-gradient-to-br from-teal-600 to-emerald-700 rounded-3xl p-5 text-white shadow-xl shadow-teal-900/10 flex items-center justify-between">
         <div>
@@ -67,7 +67,7 @@ export const RemindersView: React.FC = () => {
           className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all shadow-xs ${
             selectedMemberId === 'all'
               ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
-              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+              : 'bg-white dark:bg-slate-850 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
           }`}
         >
           👥 Todos os membros
@@ -80,7 +80,7 @@ export const RemindersView: React.FC = () => {
             className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all flex items-center space-x-1.5 shadow-xs ${
               selectedMemberId === m.id
                 ? 'bg-emerald-600 text-white shadow-emerald-500/20'
-                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
+                : 'bg-white dark:bg-slate-850 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50'
             }`}
           >
             <span>{m.avatarEmoji || '👤'}</span>
@@ -164,14 +164,16 @@ export const RemindersView: React.FC = () => {
         </div>
       )}
 
-      {/* FAB Add Reminder */}
-      <div className="fixed bottom-20 right-4 z-30 max-w-md mx-auto flex items-center space-x-2">
+      {/* FAB Add Reminder safely positioned above mobile navigation */}
+      <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] right-4 sm:right-6 z-40 pointer-events-auto">
         <button
           onClick={() => setIsAddModalOpen(true)}
-          className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-sm rounded-full shadow-lg shadow-emerald-600/30 flex items-center space-x-2 transition-all"
+          className="w-14 h-14 sm:w-auto sm:px-5 sm:py-3.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-sm shadow-2xl shadow-emerald-950/50 border-2 border-white/20 flex items-center justify-center sm:space-x-2 transition-all"
+          title="Novo Lembrete"
+          aria-label="Novo Lembrete"
         >
-          <Plus className="w-5 h-5 stroke-[2.5]" />
-          <span>Novo Lembrete</span>
+          <Plus className="w-6 h-6 stroke-[2.5]" />
+          <span className="hidden sm:inline">Novo Lembrete</span>
         </button>
       </div>
 

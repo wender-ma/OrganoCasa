@@ -1,5 +1,6 @@
 import { db } from '../db/dexie';
-import { getSupabaseClient, getSupabaseConfig } from './supabase';
+import { clearSeedData } from '../db/seed';
+import { getSupabaseClient } from './supabase';
 import {
   Product,
   ShoppingList,
@@ -25,10 +26,15 @@ export interface SyncStatus {
   isRealtimeActive: boolean;
 }
 
+// Local Cross-Tab Broadcast Channel
+const localBroadcast = typeof window !== 'undefined' && 'BroadcastChannel' in window
+  ? new BroadcastChannel('organocasa_broadcast_sync')
+  : null;
+
 let syncStatusListeners: Array<(status: SyncStatus) => void> = [];
 let currentSyncStatus: SyncStatus = {
   isSyncing: false,
-  lastSyncedAt: localStorage.getItem('organocasa_last_synced_at'),
+  lastSyncedAt: typeof localStorage !== 'undefined' ? localStorage.getItem('organocasa_last_synced_at') : null,
   errorMessage: null,
   isRealtimeActive: false
 };
@@ -46,6 +52,7 @@ export function subscribeSyncStatus(listener: (status: SyncStatus) => void): () 
 }
 
 export function getCurrentSession(): UserSession | null {
+  if (typeof localStorage === 'undefined') return null;
   const data = localStorage.getItem('organocasa_user_session');
   if (!data) return null;
   try {
@@ -56,6 +63,7 @@ export function getCurrentSession(): UserSession | null {
 }
 
 export function saveCurrentSession(session: UserSession | null) {
+  if (typeof localStorage === 'undefined') return;
   if (!session) {
     localStorage.removeItem('organocasa_user_session');
   } else {
@@ -63,9 +71,6 @@ export function saveCurrentSession(session: UserSession | null) {
   }
 }
 
-/**
- * Generate a friendly household ID and invite code
- */
 function generateInviteCode(): string {
   return `CASA-${Math.floor(100000 + Math.random() * 900000)}`;
 }
@@ -101,7 +106,8 @@ export async function authenticateWithEmail(
         id: householdId,
         name: householdName,
         invite_code: inviteCode,
-        created_by: userId
+        created_by: userId,
+        updated_at: new Date().toISOString()
       });
 
       await client.from('household_members').upsert({
@@ -141,12 +147,30 @@ export async function authenticateWithEmail(
         .from('household_members')
         .select('household_id, households(id, name, invite_code)')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      const householdId = memberData?.household_id || `house-${userId.substring(0, 8)}`;
-      const householdObj = (memberData as any)?.households;
-      const householdName = householdObj?.name || `Casa de ${cleanEmail.split('@')[0]}`;
-      const inviteCode = householdObj?.invite_code || generateInviteCode();
+      let householdId = memberData?.household_id;
+      let householdObj = (memberData as any)?.households;
+      let householdName = householdObj?.name || `Casa de ${cleanEmail.split('@')[0]}`;
+      let inviteCode = householdObj?.invite_code || generateInviteCode();
+
+      if (!householdId) {
+        householdId = `house-${userId.substring(0, 8)}`;
+        await client.from('households').upsert({
+          id: householdId,
+          name: householdName,
+          invite_code: inviteCode,
+          created_by: userId,
+          updated_at: new Date().toISOString()
+        });
+        await client.from('household_members').upsert({
+          id: `member-${userId.substring(0, 8)}`,
+          household_id: householdId,
+          user_id: userId,
+          name: cleanEmail.split('@')[0],
+          is_default: true
+        });
+      }
 
       const session: UserSession = {
         email: cleanEmail,
@@ -157,13 +181,17 @@ export async function authenticateWithEmail(
       };
 
       saveCurrentSession(session);
-      await triggerFullSync();
+
+      // Clean local seed data and cache, then perform fresh pull from the account's household
+      await clearSeedData();
+      await pullFreshHouseholdData(householdId);
       setupRealtimeSubscriptions();
       return session;
     }
   }
 
-  // Local Offline-First Mock if Supabase is not configured
+  // Local Mock if Supabase is not configured
+  await clearSeedData();
   const userId = `usr-${btoa(cleanEmail).substring(0, 10).toLowerCase()}`;
   const householdId = `house-${userId}`;
   const inviteCode = generateInviteCode();
@@ -213,7 +241,7 @@ export async function joinHouseholdByCode(inviteCode: string): Promise<UserSessi
       throw new Error('Código de convite não encontrado ou inválido.');
     }
 
-    // Associate member with this household
+    // Associate member with this household in Supabase
     await client.from('household_members').upsert({
       id: `member-${current.id.substring(0, 8)}-${household.id.substring(0, 6)}`,
       household_id: household.id,
@@ -230,12 +258,16 @@ export async function joinHouseholdByCode(inviteCode: string): Promise<UserSessi
     };
 
     saveCurrentSession(updatedSession);
-    await triggerFullSync();
+
+    // CRITICAL: Clean seed items and replace local Dexie data with the joined household's real data
+    await clearSeedData();
+    await pullFreshHouseholdData(household.id);
     setupRealtimeSubscriptions();
     return updatedSession;
   }
 
   // Offline mock pairing
+  await clearSeedData();
   const updatedSession: UserSession = {
     ...current,
     householdId: `house-${cleanCode}`,
@@ -247,7 +279,177 @@ export async function joinHouseholdByCode(inviteCode: string): Promise<UserSessi
 }
 
 /**
- * Full bi-directional sync between IndexedDB (Dexie) and Supabase
+ * Fresh pull when switching households or logging into a new device
+ */
+async function pullFreshHouseholdData(householdId: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client || !navigator.onLine) return;
+
+  currentSyncStatus = { ...currentSyncStatus, isSyncing: true, errorMessage: null };
+  notifyStatusChange();
+
+  try {
+    const [
+      { data: remoteProducts },
+      { data: remoteLists },
+      { data: remoteItems },
+      { data: remoteReminders },
+      { data: remoteReceipts },
+      { data: remotePriceRecords }
+    ] = await Promise.all([
+      client.from('products').select('*').eq('household_id', householdId),
+      client.from('shopping_lists').select('*').eq('household_id', householdId),
+      client.from('shopping_list_items').select('*').eq('household_id', householdId),
+      client.from('reminders').select('*').eq('household_id', householdId),
+      client.from('receipts').select('*').eq('household_id', householdId),
+      client.from('price_records').select('*').eq('household_id', householdId)
+    ]);
+
+    await db.transaction(
+      'rw',
+      [
+        db.products,
+        db.shoppingLists,
+        db.shoppingListItems,
+        db.reminders,
+        db.receipts,
+        db.priceRecords
+      ],
+      async () => {
+        // Clear old local items so the joined household is clean
+        if (remoteLists && remoteLists.length > 0) {
+          await db.shoppingLists.clear();
+          await db.shoppingListItems.clear();
+        }
+        if (remoteProducts && remoteProducts.length > 0) {
+          await db.products.clear();
+        }
+        if (remoteReminders && remoteReminders.length > 0) {
+          await db.reminders.clear();
+        }
+
+        // Add remote lists
+        if (remoteLists?.length) {
+          const lists: ShoppingList[] = remoteLists.map((l: any) => ({
+            id: l.id,
+            title: l.title,
+            isDefault: Boolean(l.is_default),
+            status: l.status || 'active',
+            createdAt: l.created_at,
+            updatedAt: l.updated_at || l.created_at
+          }));
+          await db.shoppingLists.bulkPut(lists);
+        }
+
+        // Add remote items
+        if (remoteItems?.length) {
+          const items: ShoppingListItem[] = remoteItems.map((i: any) => ({
+            id: i.id,
+            listId: i.list_id,
+            productId: i.product_id || undefined,
+            name: i.name,
+            category: i.category,
+            brand: i.brand || undefined,
+            alternativeBrands: i.alternative_brands || undefined,
+            selectedBrand: i.selected_brand || undefined,
+            imageUrl: i.image_url || undefined,
+            quantity: Number(i.quantity || 1),
+            unit: i.unit,
+            averagePrice: Number(i.average_price || 0),
+            lastPrice: Number(i.last_price || 0),
+            isChecked: Boolean(i.is_checked),
+            notes: i.notes || undefined,
+            createdAt: i.created_at,
+            updatedAt: i.updated_at || i.created_at
+          }));
+          await db.shoppingListItems.bulkPut(items);
+        }
+
+        // Add remote products
+        if (remoteProducts?.length) {
+          const products: Product[] = remoteProducts.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            category: p.category,
+            brand: p.brand || undefined,
+            alternativeBrands: p.alternative_brands || undefined,
+            barcode: p.barcode || undefined,
+            imageUrl: p.image_url || undefined,
+            unit: p.unit,
+            averagePrice: Number(p.average_price || 0),
+            lastPrice: Number(p.last_price || 0),
+            lastPriceDate: p.last_price_date || undefined,
+            lastStore: p.last_store || undefined,
+            purchaseCount: Number(p.purchase_count || 0),
+            createdAt: p.created_at,
+            updatedAt: p.updated_at || p.created_at
+          }));
+          await db.products.bulkPut(products);
+        }
+
+        // Add remote reminders
+        if (remoteReminders?.length) {
+          const reminders: Reminder[] = remoteReminders.map((r: any) => ({
+            id: r.id,
+            title: r.title,
+            description: r.description || undefined,
+            assignedMemberId: r.assigned_member_id || undefined,
+            checklist: r.checklist || [],
+            dueDate: r.due_date || undefined,
+            isCompleted: Boolean(r.is_completed),
+            category: r.category || undefined,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at || r.created_at
+          }));
+          await db.reminders.bulkPut(reminders);
+        }
+
+        // Add remote receipts
+        if (remoteReceipts?.length) {
+          const receipts: Receipt[] = remoteReceipts.map((rc: any) => ({
+            id: rc.id,
+            listId: rc.list_id || undefined,
+            storeName: rc.store_name,
+            accessKey: rc.access_key || undefined,
+            totalAmount: Number(rc.total_amount || 0),
+            purchaseDate: rc.purchase_date,
+            rawType: rc.raw_type || 'qr_code',
+            items: rc.items || [],
+            createdAt: rc.created_at
+          }));
+          await db.receipts.bulkPut(receipts);
+        }
+
+        // Add remote price records
+        if (remotePriceRecords?.length) {
+          const prices: PriceRecord[] = remotePriceRecords.map((pr: any) => ({
+            id: pr.id,
+            productId: pr.product_id,
+            receiptId: pr.receipt_id || undefined,
+            price: Number(pr.price || 0),
+            quantity: Number(pr.quantity || 1),
+            unit: pr.unit,
+            storeName: pr.store_name,
+            date: pr.date
+          }));
+          await db.priceRecords.bulkPut(prices);
+        }
+      }
+    );
+
+    const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    localStorage.setItem('organocasa_last_synced_at', now);
+    currentSyncStatus = { isSyncing: false, lastSyncedAt: now, errorMessage: null, isRealtimeActive: true };
+    notifyStatusChange();
+  } catch (err: any) {
+    console.error('Erro ao baixar dados da casa:', err);
+    currentSyncStatus = { ...currentSyncStatus, isSyncing: false, errorMessage: err.message };
+    notifyStatusChange();
+  }
+}
+
+/**
+ * Robust two-way merge synchronization with timestamp conflict resolution
  */
 export async function triggerFullSync(): Promise<boolean> {
   const client = getSupabaseClient();
@@ -268,8 +470,29 @@ export async function triggerFullSync(): Promise<boolean> {
 
   try {
     // -------------------------------------------------------------
-    // 1. PUSH LOCAL ITEMS TO SUPABASE
+    // STEP 1: PULL ALL REMOTE DATA FIRST
     // -------------------------------------------------------------
+    const [
+      { data: remoteProducts, error: prodErr },
+      { data: remoteLists, error: listErr },
+      { data: remoteItems, error: itemErr },
+      { data: remoteReminders, error: remErr },
+      { data: remoteReceipts, error: rcErr },
+      { data: remotePriceRecords, error: prErr }
+    ] = await Promise.all([
+      client.from('products').select('*').eq('household_id', householdId),
+      client.from('shopping_lists').select('*').eq('household_id', householdId),
+      client.from('shopping_list_items').select('*').eq('household_id', householdId),
+      client.from('reminders').select('*').eq('household_id', householdId),
+      client.from('receipts').select('*').eq('household_id', householdId),
+      client.from('price_records').select('*').eq('household_id', householdId)
+    ]);
+
+    if (prodErr || listErr || itemErr || remErr || rcErr || prErr) {
+      const err = prodErr || listErr || itemErr || remErr || rcErr || prErr;
+      throw new Error(`Erro ao consultar Supabase: ${err?.message}`);
+    }
+
     const localProducts = await db.products.toArray();
     const localLists = await db.shoppingLists.toArray();
     const localItems = await db.shoppingListItems.toArray();
@@ -277,46 +500,160 @@ export async function triggerFullSync(): Promise<boolean> {
     const localReceipts = await db.receipts.toArray();
     const localPriceRecords = await db.priceRecords.toArray();
 
-    // Push Products
-    if (localProducts.length > 0) {
-      const productPayload = localProducts.map((p) => ({
-        id: p.id,
-        household_id: householdId,
-        name: p.name,
-        category: p.category,
-        brand: p.brand || null,
-        alternative_brands: p.alternativeBrands || [],
-        barcode: p.barcode || null,
-        image_url: p.imageUrl || null,
-        unit: p.unit,
-        average_price: p.averagePrice || 0,
-        last_price: p.lastPrice || 0,
-        last_price_date: p.lastPriceDate || null,
-        last_store: p.lastStore || null,
-        purchase_count: p.purchaseCount || 0,
-        created_at: p.createdAt,
-        updated_at: p.updatedAt
-      }));
-      await client.from('products').upsert(productPayload, { onConflict: 'id' });
+    // -------------------------------------------------------------
+    // STEP 2: MERGE REMOTE INTO LOCAL DEXIE (Remote Wins on Newer/Equal Timestamp)
+    // -------------------------------------------------------------
+    const remoteItemMap = new Map((remoteItems || []).map((i: any) => [i.id, i]));
+    const remoteListMap = new Map((remoteLists || []).map((l: any) => [l.id, l]));
+    const remoteRemMap = new Map((remoteReminders || []).map((r: any) => [r.id, r]));
+    const remoteProdMap = new Map((remoteProducts || []).map((p: any) => [p.id, p]));
+
+    // 2.1 Merge Shopping Lists
+    for (const remoteList of remoteLists || []) {
+      const local = localLists.find((l) => l.id === remoteList.id);
+      const remoteUpdatedAt = new Date(remoteList.updated_at || remoteList.created_at).getTime();
+      const localUpdatedAt = local ? new Date(local.updatedAt || local.createdAt).getTime() : 0;
+
+      if (!local || remoteUpdatedAt >= localUpdatedAt) {
+        await db.shoppingLists.put({
+          id: remoteList.id,
+          title: remoteList.title,
+          isDefault: Boolean(remoteList.is_default),
+          status: remoteList.status || 'active',
+          createdAt: remoteList.created_at,
+          updatedAt: remoteList.updated_at || remoteList.created_at
+        });
+      }
     }
 
-    // Push Shopping Lists
-    if (localLists.length > 0) {
-      const listPayload = localLists.map((l) => ({
-        id: l.id,
-        household_id: householdId,
-        title: l.title,
-        is_default: l.isDefault,
-        status: l.status,
-        created_at: l.createdAt,
-        updated_at: l.updatedAt
-      }));
-      await client.from('shopping_lists').upsert(listPayload, { onConflict: 'id' });
+    // 2.2 Merge Shopping List Items
+    for (const remoteItem of remoteItems || []) {
+      const local = localItems.find((i) => i.id === remoteItem.id);
+      const remoteUpdatedAt = new Date(remoteItem.updated_at || remoteItem.created_at).getTime();
+      const localUpdatedAt = local ? new Date(local.updatedAt || local.createdAt).getTime() : 0;
+
+      if (!local || remoteUpdatedAt >= localUpdatedAt) {
+        await db.shoppingListItems.put({
+          id: remoteItem.id,
+          listId: remoteItem.list_id,
+          productId: remoteItem.product_id || undefined,
+          name: remoteItem.name,
+          category: remoteItem.category,
+          brand: remoteItem.brand || undefined,
+          alternativeBrands: remoteItem.alternative_brands || undefined,
+          selectedBrand: remoteItem.selected_brand || undefined,
+          imageUrl: remoteItem.image_url || undefined,
+          quantity: Number(remoteItem.quantity || 1),
+          unit: remoteItem.unit,
+          averagePrice: Number(remoteItem.average_price || 0),
+          lastPrice: Number(remoteItem.last_price || 0),
+          isChecked: Boolean(remoteItem.is_checked),
+          notes: remoteItem.notes || undefined,
+          createdAt: remoteItem.created_at,
+          updatedAt: remoteItem.updated_at || remoteItem.created_at
+        });
+      }
     }
 
-    // Push Shopping List Items
-    if (localItems.length > 0) {
-      const itemPayload = localItems.map((i) => ({
+    // Clean up local items that were deleted remotely (if remote had records)
+    if (remoteItems && remoteItems.length > 0) {
+      for (const local of localItems) {
+        // If local item is not in remote and was created more than 1 minute ago, it was deleted on remote
+        if (!remoteItemMap.has(local.id)) {
+          const itemAgeMs = Date.now() - new Date(local.createdAt).getTime();
+          if (itemAgeMs > 60000) {
+            await db.shoppingListItems.delete(local.id);
+          }
+        }
+      }
+    }
+
+    // 2.3 Merge Reminders
+    for (const remoteRem of remoteReminders || []) {
+      const local = localReminders.find((r) => r.id === remoteRem.id);
+      const remoteUpdatedAt = new Date(remoteRem.updated_at || remoteRem.created_at).getTime();
+      const localUpdatedAt = local ? new Date(local.updatedAt || local.createdAt).getTime() : 0;
+
+      if (!local || remoteUpdatedAt >= localUpdatedAt) {
+        await db.reminders.put({
+          id: remoteRem.id,
+          title: remoteRem.title,
+          description: remoteRem.description || undefined,
+          assignedMemberId: remoteRem.assigned_member_id || undefined,
+          checklist: remoteRem.checklist || [],
+          dueDate: remoteRem.due_date || undefined,
+          isCompleted: Boolean(remoteRem.is_completed),
+          category: remoteRem.category || undefined,
+          createdAt: remoteRem.created_at,
+          updatedAt: remoteRem.updated_at || remoteRem.created_at
+        });
+      }
+    }
+
+    if (remoteReminders && remoteReminders.length > 0) {
+      for (const local of localReminders) {
+        if (!remoteRemMap.has(local.id)) {
+          const ageMs = Date.now() - new Date(local.createdAt).getTime();
+          if (ageMs > 60000) {
+            await db.reminders.delete(local.id);
+          }
+        }
+      }
+    }
+
+    // 2.4 Merge Products & Price History
+    for (const remoteProd of remoteProducts || []) {
+      const local = localProducts.find((p) => p.id === remoteProd.id);
+      const remoteUpdatedAt = new Date(remoteProd.updated_at || remoteProd.created_at).getTime();
+      const localUpdatedAt = local ? new Date(local.updatedAt || local.createdAt).getTime() : 0;
+
+      if (!local || remoteUpdatedAt >= localUpdatedAt) {
+        await db.products.put({
+          id: remoteProd.id,
+          name: remoteProd.name,
+          category: remoteProd.category,
+          brand: remoteProd.brand || undefined,
+          alternativeBrands: remoteProd.alternative_brands || undefined,
+          barcode: remoteProd.barcode || undefined,
+          imageUrl: remoteProd.image_url || undefined,
+          unit: remoteProd.unit,
+          averagePrice: Number(remoteProd.average_price || 0),
+          lastPrice: Number(remoteProd.last_price || 0),
+          lastPriceDate: remoteProd.last_price_date || undefined,
+          lastStore: remoteProd.last_store || undefined,
+          purchaseCount: Number(remoteProd.purchase_count || 0),
+          createdAt: remoteProd.created_at,
+          updatedAt: remoteProd.updated_at || remoteProd.created_at
+        });
+      }
+    }
+
+    // -------------------------------------------------------------
+    // STEP 3: PUSH ONLY NEWER LOCAL MUTATIONS TO SUPABASE
+    // -------------------------------------------------------------
+    const updatedLocalItems = await db.shoppingListItems.toArray();
+    const itemsToPush = updatedLocalItems.filter((local) => {
+      // NEVER push seed / sample demo items to Supabase
+      if (
+        local.createdAt === '2020-01-01T00:00:00.000Z' ||
+        local.id.startsWith('seed-') ||
+        local.id.startsWith('item-1') ||
+        local.id.startsWith('item-2') ||
+        local.id.startsWith('item-3') ||
+        local.id.startsWith('item-4') ||
+        local.id.startsWith('item-5')
+      ) {
+        return false;
+      }
+      const remote = remoteItemMap.get(local.id);
+      if (!remote) return true; // Newly created locally
+      const localUpdatedAt = new Date(local.updatedAt || local.createdAt).getTime();
+      const remoteUpdatedAt = new Date(remote.updated_at || remote.created_at).getTime();
+      return localUpdatedAt > remoteUpdatedAt;
+    });
+
+    if (itemsToPush.length > 0) {
+      const itemPayload = itemsToPush.map((i) => ({
         id: i.id,
         household_id: householdId,
         list_id: i.listId,
@@ -334,14 +671,44 @@ export async function triggerFullSync(): Promise<boolean> {
         is_checked: i.isChecked,
         notes: i.notes || null,
         created_at: i.createdAt,
-        updated_at: new Date().toISOString()
+        updated_at: i.updatedAt || new Date().toISOString()
       }));
       await client.from('shopping_list_items').upsert(itemPayload, { onConflict: 'id' });
     }
 
-    // Push Reminders
-    if (localReminders.length > 0) {
-      const reminderPayload = localReminders.map((r) => ({
+    const updatedLocalLists = await db.shoppingLists.toArray();
+    const listsToPush = updatedLocalLists.filter((local) => {
+      const remote = remoteListMap.get(local.id);
+      if (!remote) return true;
+      const localUpdatedAt = new Date(local.updatedAt || local.createdAt).getTime();
+      const remoteUpdatedAt = new Date(remote.updated_at || remote.created_at).getTime();
+      return localUpdatedAt > remoteUpdatedAt;
+    });
+
+    if (listsToPush.length > 0) {
+      const listPayload = listsToPush.map((l) => ({
+        id: l.id,
+        household_id: householdId,
+        title: l.title,
+        is_default: l.isDefault,
+        status: l.status,
+        created_at: l.createdAt,
+        updated_at: l.updatedAt || new Date().toISOString()
+      }));
+      await client.from('shopping_lists').upsert(listPayload, { onConflict: 'id' });
+    }
+
+    const updatedLocalReminders = await db.reminders.toArray();
+    const remsToPush = updatedLocalReminders.filter((local) => {
+      const remote = remoteRemMap.get(local.id);
+      if (!remote) return true;
+      const localUpdatedAt = new Date(local.updatedAt || local.createdAt).getTime();
+      const remoteUpdatedAt = new Date(remote.updated_at || remote.created_at).getTime();
+      return localUpdatedAt > remoteUpdatedAt;
+    });
+
+    if (remsToPush.length > 0) {
+      const remPayload = remsToPush.map((r) => ({
         id: r.id,
         household_id: householdId,
         title: r.title,
@@ -352,163 +719,9 @@ export async function triggerFullSync(): Promise<boolean> {
         is_completed: r.isCompleted,
         category: r.category || null,
         created_at: r.createdAt,
-        updated_at: r.updatedAt
+        updated_at: r.updatedAt || new Date().toISOString()
       }));
-      await client.from('reminders').upsert(reminderPayload, { onConflict: 'id' });
-    }
-
-    // Push Receipts
-    if (localReceipts.length > 0) {
-      const receiptPayload = localReceipts.map((rc) => ({
-        id: rc.id,
-        household_id: householdId,
-        list_id: rc.listId || null,
-        store_name: rc.storeName,
-        access_key: rc.accessKey || null,
-        total_amount: rc.totalAmount,
-        purchase_date: rc.purchaseDate,
-        raw_type: rc.rawType,
-        items: rc.items || [],
-        created_at: rc.createdAt
-      }));
-      await client.from('receipts').upsert(receiptPayload, { onConflict: 'id' });
-    }
-
-    // Push Price Records
-    if (localPriceRecords.length > 0) {
-      const pricePayload = localPriceRecords.map((pr) => ({
-        id: pr.id,
-        household_id: householdId,
-        product_id: pr.productId,
-        receipt_id: pr.receiptId || null,
-        price: pr.price,
-        quantity: pr.quantity,
-        unit: pr.unit,
-        store_name: pr.storeName,
-        date: pr.date,
-        created_at: pr.date
-      }));
-      await client.from('price_records').upsert(pricePayload, { onConflict: 'id' });
-    }
-
-    // -------------------------------------------------------------
-    // 2. PULL REMOTE ITEMS FROM SUPABASE
-    // -------------------------------------------------------------
-    const [
-      { data: remoteProducts },
-      { data: remoteLists },
-      { data: remoteItems },
-      { data: remoteReminders },
-      { data: remoteReceipts },
-      { data: remotePriceRecords }
-    ] = await Promise.all([
-      client.from('products').select('*').eq('household_id', householdId),
-      client.from('shopping_lists').select('*').eq('household_id', householdId),
-      client.from('shopping_list_items').select('*').eq('household_id', householdId),
-      client.from('reminders').select('*').eq('household_id', householdId),
-      client.from('receipts').select('*').eq('household_id', householdId),
-      client.from('price_records').select('*').eq('household_id', householdId)
-    ]);
-
-    // Merge into local Dexie
-    if (remoteProducts?.length) {
-      const formattedProducts: Product[] = remoteProducts.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        brand: p.brand || undefined,
-        alternativeBrands: p.alternative_brands || undefined,
-        barcode: p.barcode || undefined,
-        imageUrl: p.image_url || undefined,
-        unit: p.unit,
-        averagePrice: Number(p.average_price || 0),
-        lastPrice: Number(p.last_price || 0),
-        lastPriceDate: p.last_price_date || undefined,
-        lastStore: p.last_store || undefined,
-        purchaseCount: Number(p.purchase_count || 0),
-        createdAt: p.created_at,
-        updatedAt: p.updated_at
-      }));
-      await db.products.bulkPut(formattedProducts);
-    }
-
-    if (remoteLists?.length) {
-      const formattedLists: ShoppingList[] = remoteLists.map((l: any) => ({
-        id: l.id,
-        title: l.title,
-        isDefault: Boolean(l.is_default),
-        status: l.status || 'active',
-        createdAt: l.created_at,
-        updatedAt: l.updated_at
-      }));
-      await db.shoppingLists.bulkPut(formattedLists);
-    }
-
-    if (remoteItems?.length) {
-      const formattedItems: ShoppingListItem[] = remoteItems.map((i: any) => ({
-        id: i.id,
-        listId: i.list_id,
-        productId: i.product_id || undefined,
-        name: i.name,
-        category: i.category,
-        brand: i.brand || undefined,
-        alternativeBrands: i.alternative_brands || undefined,
-        selectedBrand: i.selected_brand || undefined,
-        imageUrl: i.image_url || undefined,
-        quantity: Number(i.quantity || 1),
-        unit: i.unit,
-        averagePrice: Number(i.average_price || 0),
-        lastPrice: Number(i.last_price || 0),
-        isChecked: Boolean(i.is_checked),
-        notes: i.notes || undefined,
-        createdAt: i.created_at
-      }));
-      await db.shoppingListItems.bulkPut(formattedItems);
-    }
-
-    if (remoteReminders?.length) {
-      const formattedReminders: Reminder[] = remoteReminders.map((r: any) => ({
-        id: r.id,
-        title: r.title,
-        description: r.description || undefined,
-        assignedMemberId: r.assigned_member_id || undefined,
-        checklist: r.checklist || [],
-        dueDate: r.due_date || undefined,
-        isCompleted: Boolean(r.is_completed),
-        category: r.category || undefined,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at
-      }));
-      await db.reminders.bulkPut(formattedReminders);
-    }
-
-    if (remoteReceipts?.length) {
-      const formattedReceipts: Receipt[] = remoteReceipts.map((rc: any) => ({
-        id: rc.id,
-        listId: rc.list_id || undefined,
-        storeName: rc.store_name,
-        accessKey: rc.access_key || undefined,
-        totalAmount: Number(rc.total_amount || 0),
-        purchaseDate: rc.purchase_date,
-        rawType: rc.raw_type || 'qr_code',
-        items: rc.items || [],
-        createdAt: rc.created_at
-      }));
-      await db.receipts.bulkPut(formattedReceipts);
-    }
-
-    if (remotePriceRecords?.length) {
-      const formattedPrices: PriceRecord[] = remotePriceRecords.map((pr: any) => ({
-        id: pr.id,
-        productId: pr.product_id,
-        receiptId: pr.receipt_id || undefined,
-        price: Number(pr.price || 0),
-        quantity: Number(pr.quantity || 1),
-        unit: pr.unit,
-        storeName: pr.store_name,
-        date: pr.date
-      }));
-      await db.priceRecords.bulkPut(formattedPrices);
+      await client.from('reminders').upsert(remPayload, { onConflict: 'id' });
     }
 
     const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -542,6 +755,24 @@ let realtimeChannel: any = null;
 export function setupRealtimeSubscriptions(): void {
   const client = getSupabaseClient();
   const session = getCurrentSession();
+
+  // Listen to local BroadcastChannel for multi-tab sync
+  if (localBroadcast) {
+    localBroadcast.onmessage = async (event) => {
+      const { type, entity, data, id } = event.data || {};
+      if (type === 'ITEM_CHANGE' && data) {
+        await db.shoppingListItems.put(data);
+      } else if (type === 'ITEM_DELETE' && id) {
+        await db.shoppingListItems.delete(id);
+      } else if (type === 'REMINDER_CHANGE' && data) {
+        await db.reminders.put(data);
+      } else if (type === 'REMINDER_DELETE' && id) {
+        await db.reminders.delete(id);
+      } else if (type === 'LIST_CHANGE' && data) {
+        await db.shoppingLists.put(data);
+      }
+    };
+  }
 
   if (!client || !session) return;
 
@@ -581,7 +812,8 @@ export function setupRealtimeSubscriptions(): void {
             lastPrice: Number(item.last_price || 0),
             isChecked: Boolean(item.is_checked),
             notes: item.notes || undefined,
-            createdAt: item.created_at
+            createdAt: item.created_at,
+            updatedAt: item.updated_at || item.created_at
           });
         } else if (payload.eventType === 'DELETE') {
           if (payload.old?.id) {
@@ -607,7 +839,7 @@ export function setupRealtimeSubscriptions(): void {
             isDefault: Boolean(list.is_default),
             status: list.status || 'active',
             createdAt: list.created_at,
-            updatedAt: list.updated_at
+            updatedAt: list.updated_at || list.created_at
           });
         } else if (payload.eventType === 'DELETE') {
           if (payload.old?.id) {
@@ -637,7 +869,7 @@ export function setupRealtimeSubscriptions(): void {
             isCompleted: Boolean(rem.is_completed),
             category: rem.category || undefined,
             createdAt: rem.created_at,
-            updatedAt: rem.updated_at
+            updatedAt: rem.updated_at || rem.created_at
           });
         } else if (payload.eventType === 'DELETE') {
           if (payload.old?.id) {
@@ -665,9 +897,12 @@ if (typeof window !== 'undefined') {
 }
 
 /**
- * Instant Single-Item Push to Supabase
+ * Instant Single-Item Push to Supabase & Local Broadcast
  */
 export async function pushSingleItem(item: ShoppingListItem): Promise<void> {
+  // Broadcast locally to other tabs
+  localBroadcast?.postMessage({ type: 'ITEM_CHANGE', data: item });
+
   const client = getSupabaseClient();
   const session = getCurrentSession();
   if (!client || !session || !navigator.onLine) return;
@@ -691,7 +926,7 @@ export async function pushSingleItem(item: ShoppingListItem): Promise<void> {
       is_checked: item.isChecked,
       notes: item.notes || null,
       created_at: item.createdAt,
-      updated_at: new Date().toISOString()
+      updated_at: item.updatedAt || new Date().toISOString()
     }, { onConflict: 'id' });
   } catch (err) {
     console.warn('Falha ao enviar item para o Supabase:', err);
@@ -702,6 +937,8 @@ export async function pushSingleItem(item: ShoppingListItem): Promise<void> {
  * Instant Single-Item Delete from Supabase
  */
 export async function deleteSingleItem(id: string): Promise<void> {
+  localBroadcast?.postMessage({ type: 'ITEM_DELETE', id });
+
   const client = getSupabaseClient();
   const session = getCurrentSession();
   if (!client || !session || !navigator.onLine) return;
@@ -717,6 +954,8 @@ export async function deleteSingleItem(id: string): Promise<void> {
  * Instant Bulk Delete from Supabase
  */
 export async function deleteMultipleItems(ids: string[]): Promise<void> {
+  ids.forEach((id) => localBroadcast?.postMessage({ type: 'ITEM_DELETE', id }));
+
   const client = getSupabaseClient();
   const session = getCurrentSession();
   if (!client || !session || !navigator.onLine || ids.length === 0) return;
@@ -732,6 +971,8 @@ export async function deleteMultipleItems(ids: string[]): Promise<void> {
  * Instant Single-List Push to Supabase
  */
 export async function pushSingleList(list: ShoppingList): Promise<void> {
+  localBroadcast?.postMessage({ type: 'LIST_CHANGE', data: list });
+
   const client = getSupabaseClient();
   const session = getCurrentSession();
   if (!client || !session || !navigator.onLine) return;
@@ -744,7 +985,7 @@ export async function pushSingleList(list: ShoppingList): Promise<void> {
       is_default: list.isDefault,
       status: list.status,
       created_at: list.createdAt,
-      updated_at: list.updatedAt
+      updated_at: list.updatedAt || new Date().toISOString()
     }, { onConflict: 'id' });
   } catch (err) {
     console.warn('Falha ao enviar lista para o Supabase:', err);
@@ -755,6 +996,8 @@ export async function pushSingleList(list: ShoppingList): Promise<void> {
  * Instant Single-Reminder Push to Supabase
  */
 export async function pushSingleReminder(reminder: Reminder): Promise<void> {
+  localBroadcast?.postMessage({ type: 'REMINDER_CHANGE', data: reminder });
+
   const client = getSupabaseClient();
   const session = getCurrentSession();
   if (!client || !session || !navigator.onLine) return;
@@ -771,7 +1014,7 @@ export async function pushSingleReminder(reminder: Reminder): Promise<void> {
       is_completed: reminder.isCompleted,
       category: reminder.category || null,
       created_at: reminder.createdAt,
-      updated_at: reminder.updatedAt
+      updated_at: reminder.updatedAt || new Date().toISOString()
     }, { onConflict: 'id' });
   } catch (err) {
     console.warn('Falha ao enviar lembrete para o Supabase:', err);
@@ -782,6 +1025,8 @@ export async function pushSingleReminder(reminder: Reminder): Promise<void> {
  * Instant Single-Reminder Delete from Supabase
  */
 export async function deleteSingleReminder(id: string): Promise<void> {
+  localBroadcast?.postMessage({ type: 'REMINDER_DELETE', id });
+
   const client = getSupabaseClient();
   const session = getCurrentSession();
   if (!client || !session || !navigator.onLine) return;
@@ -818,7 +1063,7 @@ export async function pushSingleProduct(product: Product): Promise<void> {
       last_store: product.lastStore || null,
       purchase_count: product.purchaseCount || 0,
       created_at: product.createdAt,
-      updated_at: product.updatedAt
+      updated_at: product.updatedAt || new Date().toISOString()
     }, { onConflict: 'id' });
   } catch (err) {
     console.warn('Falha ao enviar produto para o Supabase:', err);
