@@ -2,6 +2,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useState, useEffect } from 'react';
 import { db } from '../db/dexie';
 import { ShoppingList, ShoppingListItem, ProductCategory, ProductUnit } from '../types';
+import {
+  pushSingleItem,
+  deleteSingleItem,
+  deleteMultipleItems,
+  pushSingleList,
+  pushSingleProduct
+} from '../services/supabaseSync';
 
 export function useShoppingList() {
   const [activeListId, setActiveListId] = useState<string>('list-default');
@@ -81,7 +88,7 @@ export function useShoppingList() {
         data.lastPrice = existingProduct.lastPrice;
       } else {
         prodId = `prod-${Date.now()}`;
-        await db.products.add({
+        const newProduct = {
           id: prodId,
           name: data.name.trim(),
           category: data.category,
@@ -94,7 +101,9 @@ export function useShoppingList() {
           purchaseCount: data.lastPrice ? 1 : 0,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        });
+        };
+        await db.products.add(newProduct);
+        pushSingleProduct(newProduct).catch(console.warn);
       }
     }
 
@@ -118,41 +127,60 @@ export function useShoppingList() {
     };
 
     await db.shoppingListItems.add(newItem);
+    pushSingleItem(newItem).catch(console.warn);
     return newItem;
   }
 
   async function toggleItem(id: string) {
     const item = await db.shoppingListItems.get(id);
     if (item) {
-      await db.shoppingListItems.update(id, { isChecked: !item.isChecked });
+      const newChecked = !item.isChecked;
+      await db.shoppingListItems.update(id, { isChecked: newChecked });
+      pushSingleItem({ ...item, isChecked: newChecked }).catch(console.warn);
     }
   }
 
   async function updateItemQuantity(id: string, newQuantity: number) {
     if (newQuantity <= 0) {
       await db.shoppingListItems.delete(id);
+      deleteSingleItem(id).catch(console.warn);
     } else {
-      await db.shoppingListItems.update(id, { quantity: Number(newQuantity.toFixed(2)) });
+      const rounded = Number(newQuantity.toFixed(2));
+      await db.shoppingListItems.update(id, { quantity: rounded });
+      const item = await db.shoppingListItems.get(id);
+      if (item) {
+        pushSingleItem(item).catch(console.warn);
+      }
     }
   }
 
   async function updateItem(id: string, changes: Partial<ShoppingListItem>) {
     await db.shoppingListItems.update(id, changes);
+    const item = await db.shoppingListItems.get(id);
+    if (item) {
+      pushSingleItem(item).catch(console.warn);
+    }
   }
 
   async function removeItem(id: string) {
     await db.shoppingListItems.delete(id);
+    deleteSingleItem(id).catch(console.warn);
   }
 
   async function clearCompletedItems() {
     const completedIds = items.filter((i) => i.isChecked).map((i) => i.id);
     if (completedIds.length > 0) {
       await db.shoppingListItems.bulkDelete(completedIds);
+      deleteMultipleItems(completedIds).catch(console.warn);
     }
   }
 
   async function uncheckAllItems() {
-    const updates = items.map((i) => db.shoppingListItems.update(i.id, { isChecked: false }));
+    const updates = items.map((i) => {
+      const updated = { ...i, isChecked: false };
+      pushSingleItem(updated).catch(console.warn);
+      return db.shoppingListItems.update(i.id, { isChecked: false });
+    });
     await Promise.all(updates);
   }
 
@@ -166,6 +194,7 @@ export function useShoppingList() {
       updatedAt: new Date().toISOString()
     };
     await db.shoppingLists.add(newList);
+    pushSingleList(newList).catch(console.warn);
     setActiveListId(newList.id);
     return newList;
   }
@@ -192,4 +221,3 @@ export function useShoppingList() {
     createList
   };
 }
-

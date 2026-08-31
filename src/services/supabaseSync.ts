@@ -665,6 +665,167 @@ if (typeof window !== 'undefined') {
 }
 
 /**
+ * Instant Single-Item Push to Supabase
+ */
+export async function pushSingleItem(item: ShoppingListItem): Promise<void> {
+  const client = getSupabaseClient();
+  const session = getCurrentSession();
+  if (!client || !session || !navigator.onLine) return;
+
+  try {
+    await client.from('shopping_list_items').upsert({
+      id: item.id,
+      household_id: session.householdId,
+      list_id: item.listId,
+      product_id: item.productId || null,
+      name: item.name,
+      category: item.category,
+      brand: item.brand || null,
+      alternative_brands: item.alternativeBrands || [],
+      selected_brand: item.selectedBrand || null,
+      image_url: item.imageUrl || null,
+      quantity: item.quantity,
+      unit: item.unit,
+      average_price: item.averagePrice || 0,
+      last_price: item.lastPrice || 0,
+      is_checked: item.isChecked,
+      notes: item.notes || null,
+      created_at: item.createdAt,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('Falha ao enviar item para o Supabase:', err);
+  }
+}
+
+/**
+ * Instant Single-Item Delete from Supabase
+ */
+export async function deleteSingleItem(id: string): Promise<void> {
+  const client = getSupabaseClient();
+  const session = getCurrentSession();
+  if (!client || !session || !navigator.onLine) return;
+
+  try {
+    await client.from('shopping_list_items').delete().eq('id', id);
+  } catch (err) {
+    console.warn('Falha ao deletar item no Supabase:', err);
+  }
+}
+
+/**
+ * Instant Bulk Delete from Supabase
+ */
+export async function deleteMultipleItems(ids: string[]): Promise<void> {
+  const client = getSupabaseClient();
+  const session = getCurrentSession();
+  if (!client || !session || !navigator.onLine || ids.length === 0) return;
+
+  try {
+    await client.from('shopping_list_items').delete().in('id', ids);
+  } catch (err) {
+    console.warn('Falha ao deletar itens no Supabase:', err);
+  }
+}
+
+/**
+ * Instant Single-List Push to Supabase
+ */
+export async function pushSingleList(list: ShoppingList): Promise<void> {
+  const client = getSupabaseClient();
+  const session = getCurrentSession();
+  if (!client || !session || !navigator.onLine) return;
+
+  try {
+    await client.from('shopping_lists').upsert({
+      id: list.id,
+      household_id: session.householdId,
+      title: list.title,
+      is_default: list.isDefault,
+      status: list.status,
+      created_at: list.createdAt,
+      updated_at: list.updatedAt
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('Falha ao enviar lista para o Supabase:', err);
+  }
+}
+
+/**
+ * Instant Single-Reminder Push to Supabase
+ */
+export async function pushSingleReminder(reminder: Reminder): Promise<void> {
+  const client = getSupabaseClient();
+  const session = getCurrentSession();
+  if (!client || !session || !navigator.onLine) return;
+
+  try {
+    await client.from('reminders').upsert({
+      id: reminder.id,
+      household_id: session.householdId,
+      title: reminder.title,
+      description: reminder.description || null,
+      assigned_member_id: reminder.assignedMemberId || null,
+      checklist: reminder.checklist || [],
+      due_date: reminder.dueDate || null,
+      is_completed: reminder.isCompleted,
+      category: reminder.category || null,
+      created_at: reminder.createdAt,
+      updated_at: reminder.updatedAt
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('Falha ao enviar lembrete para o Supabase:', err);
+  }
+}
+
+/**
+ * Instant Single-Reminder Delete from Supabase
+ */
+export async function deleteSingleReminder(id: string): Promise<void> {
+  const client = getSupabaseClient();
+  const session = getCurrentSession();
+  if (!client || !session || !navigator.onLine) return;
+
+  try {
+    await client.from('reminders').delete().eq('id', id);
+  } catch (err) {
+    console.warn('Falha ao deletar lembrete no Supabase:', err);
+  }
+}
+
+/**
+ * Instant Single-Product Push to Supabase
+ */
+export async function pushSingleProduct(product: Product): Promise<void> {
+  const client = getSupabaseClient();
+  const session = getCurrentSession();
+  if (!client || !session || !navigator.onLine) return;
+
+  try {
+    await client.from('products').upsert({
+      id: product.id,
+      household_id: session.householdId,
+      name: product.name,
+      category: product.category,
+      brand: product.brand || null,
+      alternative_brands: product.alternativeBrands || [],
+      barcode: product.barcode || null,
+      image_url: product.imageUrl || null,
+      unit: product.unit,
+      average_price: product.averagePrice || 0,
+      last_price: product.lastPrice || 0,
+      last_price_date: product.lastPriceDate || null,
+      last_store: product.lastStore || null,
+      purchase_count: product.purchaseCount || 0,
+      created_at: product.createdAt,
+      updated_at: product.updatedAt
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('Falha ao enviar produto para o Supabase:', err);
+  }
+}
+
+/**
  * Full JSON Data Backup & Export (100% Offline)
  */
 export async function exportDatabaseToJson(): Promise<string> {

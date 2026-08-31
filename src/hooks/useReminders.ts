@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/dexie';
 import { Reminder, HouseholdMember, ReminderCheckItem } from '../types';
+import { pushSingleReminder, deleteSingleReminder } from '../services/supabaseSync';
 
 export function useReminders() {
   const members = useLiveQuery(() => db.householdMembers.toArray()) || [];
@@ -55,30 +56,43 @@ export function useReminders() {
     };
 
     await db.reminders.add(newReminder);
+    pushSingleReminder(newReminder).catch(console.warn);
     return newReminder;
   }
 
   async function updateReminder(id: string, changes: Partial<Reminder>) {
+    const updatedAt = new Date().toISOString();
     await db.reminders.update(id, {
       ...changes,
-      updatedAt: new Date().toISOString()
+      updatedAt
     });
+    const rem = await db.reminders.get(id);
+    if (rem) {
+      pushSingleReminder(rem).catch(console.warn);
+    }
   }
 
   async function toggleReminderCompleted(id: string) {
     const rem = await db.reminders.get(id);
     if (rem) {
       const isCompleted = !rem.isCompleted;
-      // Also update checklist items to match if completing
       const updatedChecklist = isCompleted
         ? rem.checklist.map((c) => ({ ...c, isDone: true }))
         : rem.checklist;
 
-      await db.reminders.update(id, {
+      const updatedRem: Reminder = {
+        ...rem,
         isCompleted,
         checklist: updatedChecklist,
         updatedAt: new Date().toISOString()
+      };
+
+      await db.reminders.update(id, {
+        isCompleted,
+        checklist: updatedChecklist,
+        updatedAt: updatedRem.updatedAt
       });
+      pushSingleReminder(updatedRem).catch(console.warn);
     }
   }
 
@@ -89,14 +103,20 @@ export function useReminders() {
         c.id === checkItemId ? { ...c, isDone: !c.isDone } : c
       );
 
-      // Auto-complete reminder if all checklist items are done
       const allDone = updatedChecklist.length > 0 && updatedChecklist.every((c) => c.isDone);
-
-      await db.reminders.update(reminderId, {
+      const updatedRem: Reminder = {
+        ...rem,
         checklist: updatedChecklist,
         isCompleted: allDone ? true : rem.isCompleted,
         updatedAt: new Date().toISOString()
+      };
+
+      await db.reminders.update(reminderId, {
+        checklist: updatedChecklist,
+        isCompleted: updatedRem.isCompleted,
+        updatedAt: updatedRem.updatedAt
       });
+      pushSingleReminder(updatedRem).catch(console.warn);
     }
   }
 
@@ -108,16 +128,24 @@ export function useReminders() {
         text: text.trim(),
         isDone: false
       };
-      await db.reminders.update(reminderId, {
+      const updatedRem: Reminder = {
+        ...rem,
         checklist: [...rem.checklist, newItem],
         isCompleted: false,
         updatedAt: new Date().toISOString()
+      };
+      await db.reminders.update(reminderId, {
+        checklist: updatedRem.checklist,
+        isCompleted: false,
+        updatedAt: updatedRem.updatedAt
       });
+      pushSingleReminder(updatedRem).catch(console.warn);
     }
   }
 
   async function deleteReminder(id: string) {
     await db.reminders.delete(id);
+    deleteSingleReminder(id).catch(console.warn);
   }
 
   return {
@@ -134,4 +162,3 @@ export function useReminders() {
     deleteReminder
   };
 }
-
