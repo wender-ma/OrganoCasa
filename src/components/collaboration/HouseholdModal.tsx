@@ -207,8 +207,8 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 animate-in slide-in-from-bottom duration-200 overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3.5 sm:px-5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">
           <div className="flex items-center space-x-2.5">
@@ -232,7 +232,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
           </button>
         </div>
 
-        {/* Tab Navigation (only when logged in or in settings) */}
+        {/* Tab Navigation (only when logged in) */}
         {session && (
           <div className="flex border-b border-slate-100 dark:border-slate-800 px-4 bg-slate-50/50 dark:bg-slate-850/50 text-xs shrink-0">
             <button
@@ -275,7 +275,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
         )}
 
         {/* Scrollable Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1 overscroll-contain">
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5">
           {/* Toast Notification */}
           {toastMessage && (
             <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 animate-in fade-in">
