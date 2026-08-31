@@ -14,10 +14,13 @@
   }
 
   .pb-safe {
-    padding-bottom: env(safe-area-inset-bottom, 1rem);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
   }
   .pt-safe {
-    padding-top: env(safe-area-inset-top, 0.5rem);
+    padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
+  }
+  .header-safe {
+    padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
   }
 }
 
