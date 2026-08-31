@@ -14,6 +14,7 @@ import { useReceipts } from './hooks/useReceipts';
 import { seedDatabase } from './db/seed';
 import { ParsedReceiptData } from './services/receiptParser';
 import { ReconciliationItem } from './types';
+import { triggerFullSync, setupRealtimeSubscriptions } from './services/supabaseSync';
 
 export const App: React.FC = () => {
   const isOnline = useOnlineStatus();
@@ -38,9 +39,14 @@ export const App: React.FC = () => {
   const [reconciliationItems, setReconciliationItems] = useState<ReconciliationItem[]>([]);
   const [isReconciliationOpen, setIsReconciliationOpen] = useState(false);
 
-  // Seed DB on mount
+  // Seed DB on mount & initialize cloud sync
   useEffect(() => {
-    seedDatabase().catch((e) => console.error('Erro ao inicializar DB:', e));
+    seedDatabase()
+      .then(() => {
+        triggerFullSync().catch(console.warn);
+        setupRealtimeSubscriptions();
+      })
+      .catch((e) => console.error('Erro ao inicializar DB:', e));
   }, []);
 
   const handleReceiptParsed = async (data: ParsedReceiptData) => {
