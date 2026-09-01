@@ -18,6 +18,7 @@ import {
   subscribeSyncStatus,
   triggerFullSync
 } from '../../services/supabaseSync';
+import { APP_VERSION } from '../../version';
 
 interface HeaderProps {
   activeList?: ShoppingList;
@@ -76,10 +77,13 @@ export const Header: React.FC<HeaderProps> = ({
               <ShoppingBag className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center space-x-1">
+              <div className="flex items-center space-x-1.5">
                 <h1 className="font-bold text-slate-900 dark:text-white text-base leading-tight">
                   OrganoCasa
                 </h1>
+                <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 border border-emerald-300/50 dark:border-emerald-800/60 px-1.5 py-0.5 rounded-md leading-none">
+                  {APP_VERSION}
+                </span>
                 <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-200" />
               </div>
               <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium truncate max-w-[150px] sm:max-w-[220px]">
@@ -91,8 +95,9 @@ export const Header: React.FC<HeaderProps> = ({
           {/* List Selector Dropdown */}
           {showListMenu && (
             <div className="absolute top-12 left-0 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
-              <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Suas Listas de Compras
+              <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Suas Listas</span>
+                <span className="text-[10px] text-slate-400 lowercase font-normal">{APP_VERSION}</span>
               </div>
               <div className="max-h-48 overflow-y-auto">
                 {lists.map((list) => (

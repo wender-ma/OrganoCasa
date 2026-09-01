@@ -15,6 +15,7 @@ import { seedDatabase } from './db/seed';
 import { ParsedReceiptData } from './services/receiptParser';
 import { ReconciliationItem } from './types';
 import { triggerFullSync, setupRealtimeSubscriptions } from './services/supabaseSync';
+import { APP_VERSION, APP_BUILD_DATE } from './version';
 
 export const App: React.FC = () => {
   const isOnline = useOnlineStatus();
@@ -91,6 +92,19 @@ export const App: React.FC = () => {
         {activeTab === 'receipts' && (
           <ReceiptHistoryView onOpenUpload={() => setIsReceiptUploadOpen(true)} />
         )}
+
+        {/* Footer Version Indicator */}
+        <footer className="mt-10 pt-6 pb-24 border-t border-slate-200/60 dark:border-slate-800/60 text-center space-y-1.5">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-850 rounded-full border border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-400 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>OrganoCasa {APP_VERSION}</span>
+            <span className="text-slate-300 dark:text-slate-600">•</span>
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Build {APP_BUILD_DATE}</span>
+          </div>
+          <p className="text-[10px] text-slate-400 dark:text-slate-500">
+            {isOnline ? '🟢 Conectado & Sincronizado' : '🟠 Modo Offline'}
+          </p>
+        </footer>
       </main>
 
       {/* Bottom Navigation */}
