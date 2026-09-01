@@ -171,7 +171,10 @@ function formatCNPJ(cnpjRaw: string): string {
 }
 
 /**
- * Parses NFC-e QR Code URLs or Access Key (Supports www.sefaz.go.gov.br and all Brazilian states)
+ * Parses NFC-e QR Code URLs or Access Key (Supports SEFAZ GO, SP, MG, RJ, and all Brazilian states)
+ * Known SEFAZ GO URLs:
+ *  - https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe?chNFe=...&nVersao=...&tpAmb=...&cHashQRCode=...
+ *  - https://www.sefaz.go.gov.br/nfce/consulta
  */
 export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptData> {
   const trimmed = qrCodeText.trim();
@@ -181,50 +184,71 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
   let storeName = 'Supermercado (NFC-e)';
   let purchaseDate = new Date().toISOString();
 
-  // 1. Try regex match for 44 consecutive digits anywhere in text / URL
-  const match44 = trimmed.match(/\b\d{44}\b/);
+  // 1. Try regex match for 44 consecutive digits anywhere in the text/URL
+  const match44 = trimmed.match(/\b(\d{44})\b/);
   if (match44) {
-    accessKey = match44[0];
+    accessKey = match44[1];
   }
 
-  // 2. Parse URL parameters (Goiás, SP, RS, MG, etc.)
+  // 2. Parse URL parameters
   try {
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.includes('sefaz.') || trimmed.includes('fazenda.')) {
+    const isUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://') ||
+      trimmed.includes('sefaz.') || trimmed.includes('fazenda.') ||
+      trimmed.includes('nfce.') || trimmed.includes('nfeweb.');
+
+    if (isUrl) {
       let urlString = trimmed;
       if (!urlString.startsWith('http://') && !urlString.startsWith('https://')) {
         urlString = 'https://' + urlString;
       }
-      
-      const url = new URL(urlString);
 
-      // Check if it is from Goiás SEFAZ
-      const isGoias = url.hostname.includes('sefaz.go.gov.br') || url.hostname.includes('go.gov.br');
+      const url = new URL(urlString);
+      const hostname = url.hostname.toLowerCase();
+
+      // Detect state from hostname
+      const isGoias = hostname.includes('sefaz.go.gov.br') || hostname.includes('go.gov.br');
+      const isSP = hostname.includes('fazenda.sp.gov.br');
+      const isMG = hostname.includes('fazenda.mg.gov.br');
+      const isRJ = hostname.includes('fazenda.rj.gov.br');
+
       if (isGoias) {
         storeName = 'Supermercado (SEFAZ - GO)';
+      } else if (isSP) {
+        storeName = 'Supermercado (SEFAZ - SP)';
+      } else if (isMG) {
+        storeName = 'Supermercado (SEFAZ - MG)';
+      } else if (isRJ) {
+        storeName = 'Supermercado (SEFAZ - RJ)';
       }
 
       // Check common query parameters: p, chNFe, chave, q, etc.
-      const pParam =
-        url.searchParams.get('p') ||
-        url.searchParams.get('chNFe') ||
-        url.searchParams.get('chave') ||
-        url.searchParams.get('qrcode') ||
-        url.searchParams.get('q') ||
-        '';
+      const chNFe = url.searchParams.get('chNFe');
+      const pParam = url.searchParams.get('p');
+      const chaveParam = url.searchParams.get('chave');
+      const qrParam = url.searchParams.get('qrcode');
+      const qParam = url.searchParams.get('q');
 
-      if (pParam) {
-        const parts = pParam.split('|');
+      // chNFe is the most direct - SEFAZ GO uses this
+      if (chNFe) {
+        const cleaned = chNFe.replace(/\D/g, '');
+        if (cleaned.length >= 44) {
+          accessKey = cleaned.substring(0, 44);
+        }
+      }
+
+      // "p" parameter (pipe-delimited format used by many states like SP, RS, etc.)
+      const pValue = pParam || chaveParam || qrParam || qParam;
+      if (pValue && !accessKey) {
+        const parts = pValue.split('|');
         // Part 0 is usually the 44-digit key
-        if (parts.length >= 1 && parts[0].length === 44) {
-          accessKey = parts[0];
-        } else if (parts[0].length > 44) {
-          const rawKey = parts[0].replace(/\D/g, '');
-          if (rawKey.length >= 44) {
-            accessKey = rawKey.substring(0, 44);
+        if (parts.length >= 1) {
+          const cleaned = parts[0].replace(/\D/g, '');
+          if (cleaned.length >= 44) {
+            accessKey = cleaned.substring(0, 44);
           }
         }
 
-        // Search in parts for price/value (e.g. 45.90, 120,50)
+        // Search pipe parts for price/value (e.g. 45.90, 120,50)
         for (let i = 1; i < parts.length; i++) {
           const token = parts[i].trim();
           if (token.match(/^\d+[\.,]\d{2}$/)) {
@@ -235,12 +259,20 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
           }
         }
       }
+
+      // Also try to extract 44-digit key from the full URL string (fallback)
+      if (!accessKey) {
+        const fullUrlMatch = urlString.match(/(\d{44})/);
+        if (fullUrlMatch) {
+          accessKey = fullUrlMatch[1];
+        }
+      }
     }
   } catch (e) {
     console.warn('Erro ao processar URL do QR Code:', e);
   }
 
-  // 3. If access key was found, extract state, CNPJ, and emission date
+  // 3. If access key found, extract state, CNPJ, and date
   if (accessKey && accessKey.length === 44) {
     const ufCode = accessKey.substring(0, 2);
     const stateName = SEFAZ_STATES[ufCode] || 'Brasil';

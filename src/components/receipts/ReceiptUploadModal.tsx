@@ -454,7 +454,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
 
           {/* Gemini API Key Configuration Modal */}
           {showKeyModal && (
-            <div className="fixed inset-0 z-60 bg-black/70 flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
               <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">

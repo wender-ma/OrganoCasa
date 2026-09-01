@@ -21,7 +21,7 @@ export const PostPurchaseAlertModal: React.FC<PostPurchaseAlertModalProps> = ({
   if (!isOpen || unboughtItems.length === 0) return null;
 
   return (
-    <div className="fixed inset-0 z-60 bg-black/65 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 z-[60] bg-black/65 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl max-w-md w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in slide-in-from-bottom duration-200 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
