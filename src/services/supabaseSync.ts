@@ -224,10 +224,9 @@ export async function logoutUser(): Promise<void> {
 /**
  * Join another household using an invite code (Family Pairing)
  */
-export async function joinHouseholdByCode(inviteCode: string): Promise<UserSession> {
+export async function joinHouseholdByCode(inviteCode: string, memberName?: string): Promise<UserSession> {
   const cleanCode = inviteCode.trim().toUpperCase();
-  const current = getCurrentSession();
-  if (!current) throw new Error('Você precisa estar logado para entrar em uma casa.');
+  let current = getCurrentSession();
 
   const client = getSupabaseClient();
   if (client) {
@@ -241,17 +240,22 @@ export async function joinHouseholdByCode(inviteCode: string): Promise<UserSessi
       throw new Error('Código de convite não encontrado ou inválido.');
     }
 
+    const displayName = memberName?.trim() || (current ? current.email.split('@')[0] : 'Familiar Conectado');
+    const userId = current ? current.id : `usr-${Math.random().toString(36).substring(2, 10)}`;
+    const userEmail = current ? current.email : `${displayName.toLowerCase().replace(/\s+/g, '')}@familia.local`;
+
     // Associate member with this household in Supabase
     await client.from('household_members').upsert({
-      id: `member-${current.id.substring(0, 8)}-${household.id.substring(0, 6)}`,
+      id: `member-${userId.substring(0, 8)}-${household.id.substring(0, 6)}`,
       household_id: household.id,
-      user_id: current.id,
-      name: current.email.split('@')[0],
+      user_id: current?.id || null,
+      name: displayName,
       is_default: false
     });
 
     const updatedSession: UserSession = {
-      ...current,
+      email: userEmail,
+      id: userId,
       householdId: household.id,
       householdName: household.name,
       inviteCode: household.invite_code
@@ -269,7 +273,8 @@ export async function joinHouseholdByCode(inviteCode: string): Promise<UserSessi
   // Offline mock pairing
   await clearSeedData();
   const updatedSession: UserSession = {
-    ...current,
+    email: current ? current.email : 'familiar@local',
+    id: current ? current.id : `usr-${Math.random().toString(36).substring(2, 10)}`,
     householdId: `house-${cleanCode}`,
     householdName: `Casa Conectada (${cleanCode})`,
     inviteCode: cleanCode

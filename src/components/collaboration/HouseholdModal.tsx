@@ -295,7 +295,41 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
 
           {/* NOT LOGGED IN: COMPACT & CLEAN AUTH FORM */}
           {!session && (
-            <div className="space-y-3.5">
+            <div className="space-y-4">
+              {/* Fast Join with Family Invite Code */}
+              <form onSubmit={handleJoinHousehold} className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 space-y-2">
+                <div className="flex items-center space-x-1.5 text-emerald-800 dark:text-emerald-300">
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span className="text-xs font-bold">Já tem um Código de Convite?</span>
+                </div>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                  Digite o código compartilhado pelo outro celular para parear instantaneamente:
+                </p>
+                <div className="flex space-x-2 pt-1">
+                  <input
+                    type="text"
+                    value={inviteCodeInput}
+                    onChange={(e) => setInviteCodeInput(e.target.value.toUpperCase())}
+                    placeholder="Ex: CASA-768225"
+                    className="flex-1 px-3 py-2 bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 rounded-xl text-xs font-mono uppercase focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!inviteCodeInput.trim() || loading}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold disabled:opacity-50 transition-all shadow-xs"
+                  >
+                    {loading ? 'Entrando...' : 'Conectar'}
+                  </button>
+                </div>
+              </form>
+
+              <div className="relative flex py-1 items-center">
+                <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
+                <span className="shrink-0 mx-2 text-[11px] text-slate-400 uppercase font-semibold">Ou Acesse com E-mail</span>
+                <div className="flex-grow border-t border-slate-200 dark:border-slate-800"></div>
+              </div>
+
+              {/* Email & Password Auth Form */}
               <form onSubmit={handleAuthSubmit} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -334,7 +368,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center space-x-1.5 mt-1"
+                  className="w-full py-2.5 bg-slate-900 dark:bg-slate-700 hover:bg-black text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center space-x-1.5 mt-1"
                 >
                   {loading ? (
                     <>
@@ -342,7 +376,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
                       <span>Conectando...</span>
                     </>
                   ) : (
-                    <span>{authMode === 'login' ? 'Entrar na Conta' : 'Criar Espaço Familiar'}</span>
+                    <span>{authMode === 'login' ? 'Entrar com E-mail' : 'Criar Conta com E-mail'}</span>
                   )}
                 </button>
               </form>
@@ -357,7 +391,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
                   className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold hover:underline"
                 >
                   {authMode === 'login'
-                    ? 'Ainda não tem conta? Criar espaço gratuito'
+                    ? 'Ainda não tem conta? Criar novo espaço'
                     : 'Já tem conta? Fazer login'}
                 </button>
               </div>

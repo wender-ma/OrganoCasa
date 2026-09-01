@@ -11,6 +11,10 @@ export interface SupabaseConfig {
   enabled: boolean;
 }
 
+export const DEFAULT_SUPABASE_URL = 'https://zgsnsxwoufuffqchghqb.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpnc25zeHdvdWZ1ZmZxY2hnaHFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyMDE0OTUsImV4cCI6MjEwMzc3NzQ5NX0.u7-eO9q7LkJ_pyhJv7T2BzQL3Pdvr9rnCmBwZ_JFIN0';
+
 let cachedClient: SupabaseClient | null = null;
 let lastClientKey: string = '';
 
@@ -18,13 +22,13 @@ export function getSupabaseConfig(): SupabaseConfig {
   const url = (
     localStorage.getItem('organocasa_supabase_url') ||
     import.meta.env.VITE_SUPABASE_URL ||
-    ''
+    DEFAULT_SUPABASE_URL
   ).trim();
 
   const anonKey = (
     localStorage.getItem('organocasa_supabase_key') ||
     import.meta.env.VITE_SUPABASE_ANON_KEY ||
-    ''
+    DEFAULT_SUPABASE_ANON_KEY
   ).trim();
 
   return {
