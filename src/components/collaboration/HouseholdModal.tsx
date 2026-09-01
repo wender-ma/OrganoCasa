@@ -104,6 +104,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
       const userSession = await authenticateWithEmail(email, password, authMode);
       setSession(userSession);
       showToast(authMode === 'login' ? 'Login realizado com sucesso!' : 'Espaço Familiar criado!');
+      setTimeout(() => onClose(), 600);
     } catch (err: any) {
       setErrorMessage(err.message || 'Falha na autenticação. Verifique seu e-mail e senha.');
     } finally {
@@ -122,6 +123,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
       setSession(updated);
       setInviteCodeInput('');
       showToast(`Conectado ao espaço "${updated.householdName}"!`);
+      setTimeout(() => onClose(), 600);
     } catch (err: any) {
       setErrorMessage(err.message || 'Código de convite inválido.');
     } finally {
