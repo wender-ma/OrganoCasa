@@ -30,11 +30,9 @@ import {
   subscribeSyncStatus,
   exportDatabaseToJson,
   importDatabaseFromJson,
-  getSyncStatus,
   UserSession,
   SyncStatus
 } from '../../services/supabaseSync';
-import { APP_VERSION, APP_BUILD_DATE } from '../../version';
 import {
   getSupabaseConfig,
   saveSupabaseConfig,
@@ -607,13 +605,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.shopping_lists, public.shop
               </div>
             </div>
           )}
-
-          {/* Version Info Footer */}
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-center">
-            <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500">
-              OrganoCasa • {APP_VERSION} ({APP_BUILD_DATE})
-            </span>
-          </div>
         </div>
       </div>
     </div>,
