@@ -43,6 +43,10 @@ function notifyStatusChange() {
   syncStatusListeners.forEach((listener) => listener({ ...currentSyncStatus }));
 }
 
+export function getSyncStatus(): SyncStatus {
+  return { ...currentSyncStatus };
+}
+
 export function subscribeSyncStatus(listener: (status: SyncStatus) => void): () => void {
   syncStatusListeners.push(listener);
   listener({ ...currentSyncStatus });

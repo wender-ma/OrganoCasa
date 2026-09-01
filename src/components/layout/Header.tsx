@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShoppingBag,
   Wifi,
@@ -7,12 +7,17 @@ import {
   ChevronDown,
   CheckCircle2,
   Users,
-  Smartphone
+  RefreshCw
 } from 'lucide-react';
 import { ShoppingList } from '../../types';
 import { HouseholdModal } from '../collaboration/HouseholdModal';
 import { InstallPwaModal } from './InstallPwaModal';
-import { getCurrentSession } from '../../services/supabaseSync';
+import {
+  getCurrentSession,
+  getSyncStatus,
+  subscribeSyncStatus,
+  triggerFullSync
+} from '../../services/supabaseSync';
 
 interface HeaderProps {
   activeList?: ShoppingList;
@@ -34,8 +39,19 @@ export const Header: React.FC<HeaderProps> = ({
   const [newListTitle, setNewListTitle] = useState('');
   const [isHouseholdOpen, setIsHouseholdOpen] = useState(false);
   const [isInstallPwaOpen, setIsInstallPwaOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(getSyncStatus());
+
+  useEffect(() => {
+    return subscribeSyncStatus((status) => {
+      setSyncStatus(status);
+    });
+  }, []);
 
   const session = getCurrentSession();
+
+  const handleManualSync = async () => {
+    await triggerFullSync();
+  };
 
   const handleCreateList = (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,15 +128,20 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right side: Install PWA + Family Account + Offline badge */}
+        {/* Right side: Manual Cloud Sync + Family Account + Offline badge */}
         <div className="flex items-center space-x-1.5">
-          {/* Install PWA Button */}
+          {/* Manual Cloud Sync Button */}
           <button
-            onClick={() => setIsInstallPwaOpen(true)}
+            onClick={handleManualSync}
+            disabled={syncStatus.isSyncing}
             className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-xl transition-colors"
-            title="Instalar App no Celular"
+            title={syncStatus.isSyncing ? 'Sincronizando com a nuvem...' : 'Sincronizar agora'}
           >
-            <Smartphone className="w-4 h-4" />
+            <RefreshCw
+              className={`w-4 h-4 transition-transform duration-500 ${
+                syncStatus.isSyncing ? 'animate-spin text-emerald-600 dark:text-emerald-400' : ''
+              }`}
+            />
           </button>
 
           {/* Family Account / Backup */}
