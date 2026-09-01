@@ -97,21 +97,26 @@ export async function authenticateWithEmail(
       if (!data.user) throw new Error('Não foi possível criar a conta.');
 
       const userId = data.user.id;
-      const householdId = `house-${userId.substring(0, 8)}`;
-      const inviteCode = generateInviteCode();
-      const householdName = `Casa de ${cleanEmail.split('@')[0]}`;
+      const currentGuestHousehold = getCurrentSession()?.householdId;
 
-      // Insert default household in Supabase
-      await client.from('households').upsert({
-        id: householdId,
-        name: householdName,
-        invite_code: inviteCode,
-        created_by: userId,
-        updated_at: new Date().toISOString()
-      });
+      let householdId = currentGuestHousehold;
+      let householdName = getCurrentSession()?.householdName || `Casa de ${cleanEmail.split('@')[0]}`;
+      let inviteCode = getCurrentSession()?.inviteCode || generateInviteCode();
+
+      // If not previously connected to a household, create a new one
+      if (!householdId) {
+        householdId = `house-${userId.substring(0, 8)}`;
+        await client.from('households').upsert({
+          id: householdId,
+          name: householdName,
+          invite_code: inviteCode,
+          created_by: userId,
+          updated_at: new Date().toISOString()
+        });
+      }
 
       await client.from('household_members').upsert({
-        id: `member-${userId.substring(0, 8)}`,
+        id: `member-${userId.substring(0, 8)}-${householdId.substring(0, 6)}`,
         household_id: householdId,
         user_id: userId,
         name: cleanEmail.split('@')[0],
@@ -142,12 +147,14 @@ export async function authenticateWithEmail(
 
       const userId = data.user.id;
 
-      // Find user household in Supabase
-      const { data: memberData } = await client
+      // Find all households the user is a member of, prioritizing is_default = true
+      const { data: memberRows } = await client
         .from('household_members')
-        .select('household_id, households(id, name, invite_code)')
+        .select('id, household_id, is_default, households(id, name, invite_code)')
         .eq('user_id', userId)
-        .maybeSingle();
+        .order('is_default', { ascending: false });
+
+      const memberData = memberRows && memberRows.length > 0 ? memberRows[0] : null;
 
       let householdId = memberData?.household_id;
       let householdObj = (memberData as any)?.households;
@@ -268,13 +275,21 @@ export async function joinHouseholdByCode(inviteCode: string, memberName?: strin
     const userId = current ? current.id : `usr-${Math.random().toString(36).substring(2, 10)}`;
     const userEmail = current ? current.email : `${displayName.toLowerCase().replace(/\s+/g, '')}@familia.local`;
 
-    // Associate member with this household in Supabase
+    // 1. If this is an authenticated user, mark their other household memberships as not default
+    if (current?.id) {
+      await client
+        .from('household_members')
+        .update({ is_default: false })
+        .eq('user_id', current.id);
+    }
+
+    // 2. Associate / update member with this household in Supabase as default
     await client.from('household_members').upsert({
       id: `member-${userId.substring(0, 8)}-${household.id.substring(0, 6)}`,
       household_id: household.id,
       user_id: current?.id || null,
       name: displayName,
-      is_default: false
+      is_default: true
     });
 
     const updatedSession: UserSession = {
