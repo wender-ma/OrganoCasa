@@ -61,16 +61,19 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   const [itemToEdit, setItemToEdit] = useState<ReconciliationItem | null>(null);
   const [isNewItemModalOpen, setIsNewItemModalOpen] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editQty, setEditQty] = useState(1);
+  const [editQty, setEditQty] = useState('1');
   const [editUnit, setEditUnit] = useState<string>('un');
-  const [editPrice, setEditPrice] = useState(0);
+  const [editPrice, setEditPrice] = useState('');
   const [editCategory, setEditCategory] = useState<ProductCategory>('Mercearia');
 
   const { addReminder } = useReminders();
 
+  // Reset items only when modal is opened with new receipt data
   React.useEffect(() => {
-    setItems(initialItems);
-  }, [initialItems]);
+    if (isOpen) {
+      setItems(initialItems);
+    }
+  }, [isOpen, receiptData?.accessKey, receiptData?.purchaseDate]);
 
   if (!isOpen || !receiptData) return null;
 
@@ -100,9 +103,10 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   const handleOpenEdit = (item: ReconciliationItem) => {
     setItemToEdit(item);
     setEditName(item.name);
-    setEditQty(item.quantity || 1);
+    setEditQty(String(item.quantity || 1));
     setEditUnit(item.unit || 'un');
-    setEditPrice(item.unitPrice || item.lastPrice || 0);
+    const price = item.unitPrice || item.lastPrice || 0;
+    setEditPrice(price > 0 ? String(price) : '');
     setEditCategory((item.category as ProductCategory) || guessCategoryFromName(item.name));
   };
 
@@ -110,9 +114,9 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   const handleOpenAdd = () => {
     setItemToEdit(null);
     setEditName('');
-    setEditQty(1);
+    setEditQty('1');
     setEditUnit('un');
-    setEditPrice(0);
+    setEditPrice('');
     setEditCategory('Mercearia');
     setIsNewItemModalOpen(true);
   };
@@ -122,8 +126,8 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
     e.preventDefault();
     if (!editName.trim()) return;
 
-    const unitPrice = Number(editPrice) || 0;
-    const qty = Number(editQty) || 1;
+    const unitPrice = parseFloat(editPrice.replace(',', '.')) || 0;
+    const qty = parseFloat(editQty.replace(',', '.')) || 1;
     const totalPrice = Number((qty * unitPrice).toFixed(2));
 
     if (itemToEdit) {
@@ -137,6 +141,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
                 quantity: qty,
                 unit: editUnit as ProductUnit,
                 unitPrice,
+                lastPrice: unitPrice,
                 totalPrice,
                 category: editCategory
               }
@@ -145,7 +150,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
       );
       setItemToEdit(null);
     } else {
-      // Add new item to unplanned
+      // Add new item to unplanned / compras extras
       const newItem: ReconciliationItem = {
         id: `rec-manual-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         status: 'unplanned',
@@ -154,10 +159,11 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
         quantity: qty,
         unit: editUnit as ProductUnit,
         unitPrice,
+        lastPrice: unitPrice,
         totalPrice,
         selectedAction: 'add_to_catalog'
       };
-      setItems((prev) => [...prev, newItem]);
+      setItems((prev) => [newItem, ...prev]);
       setIsNewItemModalOpen(false);
     }
   };
@@ -165,7 +171,11 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   const handleFinalConfirm = async () => {
     setIsApplying(true);
     try {
-      await onConfirm(receiptData, items);
+      const updatedReceiptData: ParsedReceiptData = {
+        ...receiptData,
+        totalAmount: totalCalculated > 0 ? Number(totalCalculated.toFixed(2)) : receiptData.totalAmount
+      };
+      await onConfirm(updatedReceiptData, items);
 
       if (unboughtItems.length > 0) {
         sendLocalNotification('OrganoCasa: Itens pendentes', {
@@ -496,11 +506,11 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
                     Quantidade
                   </label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={editQty}
-                    onChange={(e) => setEditQty(parseFloat(e.target.value) || 1)}
+                    onChange={(e) => setEditQty(e.target.value)}
+                    placeholder="1"
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
@@ -530,11 +540,11 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
                     Preço Unitário (R$)
                   </label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
+                    inputMode="decimal"
                     value={editPrice}
-                    onChange={(e) => setEditPrice(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => setEditPrice(e.target.value)}
+                    placeholder="0,00"
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
@@ -559,7 +569,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
               <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs flex justify-between items-center font-bold">
                 <span className="text-slate-500">Valor Total do Item:</span>
                 <span className="text-emerald-600 dark:text-emerald-400">
-                  R$ {((Number(editQty) || 1) * (Number(editPrice) || 0)).toFixed(2)}
+                  R$ {((parseFloat(editQty.replace(',', '.')) || 1) * (parseFloat(editPrice.replace(',', '.')) || 0)).toFixed(2)}
                 </span>
               </div>
 

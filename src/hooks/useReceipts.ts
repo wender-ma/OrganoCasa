@@ -157,27 +157,53 @@ export function useReceipts() {
     const receiptId = `receipt-${Date.now()}`;
     const purchaseDate = receiptData.purchaseDate || new Date().toISOString();
 
-    // 1. Save Receipt
+    // Find default or active shopping list to attach extra purchased items
+    const defaultList =
+      (await db.shoppingLists.toCollection().first());
+    const targetListId = defaultList?.id || 'list-default';
+
+    // 1. Build consolidated receipt items from confirmed items
+    const confirmedItems = reconciliationItems.filter(
+      (it) => it.status === 'matched' || (it.status === 'unplanned' && it.selectedAction !== 'ignore')
+    );
+
+    const finalReceiptItems: ReceiptItem[] = confirmedItems.map((it, idx) => ({
+      id: `rc-item-${idx}-${Date.now()}`,
+      name: it.name,
+      quantity: Number(it.quantity) || 1,
+      unitPrice: Number(it.unitPrice || it.lastPrice || 0),
+      totalPrice: Number(it.totalPrice || (Number(it.unitPrice || 0) * Number(it.quantity || 1))),
+      unit: it.unit || 'un'
+    }));
+
+    const calculatedTotal = finalReceiptItems.reduce((sum, it) => sum + it.totalPrice, 0);
+    const finalTotalAmount = calculatedTotal > 0 ? Number(calculatedTotal.toFixed(2)) : receiptData.totalAmount;
+
+    // 2. Save Receipt Record
     await db.receipts.add({
       id: receiptId,
       storeName: receiptData.storeName,
       accessKey: receiptData.accessKey,
-      totalAmount: receiptData.totalAmount,
+      totalAmount: finalTotalAmount,
       purchaseDate,
       rawType: receiptData.rawType,
-      items: receiptData.items,
+      items: finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items,
       createdAt: new Date().toISOString()
     });
 
-    // 2. Process each item in reconciliation
+    // 3. Process each item in reconciliation
     for (const item of reconciliationItems) {
       // Matched item
       if (item.status === 'matched') {
         if (item.listItemId) {
           // Check off in shopping list
           await db.shoppingListItems.update(item.listItemId, {
+            name: item.name,
             isChecked: true,
-            lastPrice: item.unitPrice || item.lastPrice
+            quantity: item.quantity,
+            lastPrice: item.unitPrice || item.lastPrice,
+            averagePrice: item.unitPrice || item.averagePrice,
+            updatedAt: new Date().toISOString()
           });
         }
 
@@ -195,7 +221,7 @@ export function useReceipts() {
         }
       }
 
-      // Unplanned / Extra item
+      // Unplanned / Extra item added by user or found on receipt
       if (item.status === 'unplanned' && item.selectedAction !== 'ignore') {
         let prodId = item.productId;
         if (!prodId) {
@@ -215,6 +241,23 @@ export function useReceipts() {
           });
         }
 
+        // Add to active shopping list as completed purchased item so it shows up in history & list
+        const extraItemId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        await db.shoppingListItems.add({
+          id: extraItemId,
+          listId: targetListId,
+          productId: prodId,
+          name: item.name,
+          category: item.category,
+          quantity: Number(item.quantity) || 1,
+          unit: (item.unit as any) || 'un',
+          averagePrice: item.unitPrice || 0,
+          lastPrice: item.unitPrice || 0,
+          isChecked: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+
         if (item.unitPrice) {
           await addOrUpdatePriceHistory(
             prodId,
@@ -233,7 +276,6 @@ export function useReceipts() {
         if (item.selectedAction === 'remove_from_list' && item.listItemId) {
           await db.shoppingListItems.delete(item.listItemId);
         }
-        // If 'keep_in_list', we simply leave it unchecked on the list for next time!
       }
     }
   }

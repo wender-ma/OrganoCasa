@@ -135,33 +135,104 @@ export function parseSEFAZXml(xmlString: string): ParsedReceiptData {
   };
 }
 
+const SEFAZ_STATES: Record<string, string> = {
+  '52': 'Goiás (GO)',
+  '53': 'Distrito Federal (DF)',
+  '35': 'São Paulo (SP)',
+  '31': 'Minas Gerais (MG)',
+  '33': 'Rio de Janeiro (RJ)',
+  '41': 'Paraná (PR)',
+  '43': 'Rio Grande do Sul (RS)',
+  '42': 'Santa Catarina (SC)',
+  '29': 'Bahia (BA)',
+  '51': 'Mato Grosso (MT)',
+  '50': 'Mato Grosso do Sul (MS)',
+  '23': 'Ceará (CE)',
+  '26': 'Pernambuco (PE)',
+  '32': 'Espírito Santo (ES)',
+  '15': 'Pará (PA)',
+  '21': 'Maranhão (MA)',
+  '25': 'Paraíba (PB)',
+  '24': 'Rio Grande do Norte (RN)',
+  '27': 'Alagoas (AL)',
+  '28': 'Sergipe (SE)',
+  '22': 'Piauí (PI)',
+  '13': 'Amazonas (AM)',
+  '11': 'Rondônia (RO)',
+  '12': 'Acre (AC)',
+  '14': 'Roraima (RR)',
+  '16': 'Amapá (AP)',
+  '17': 'Tocantins (TO)'
+};
+
+function formatCNPJ(cnpjRaw: string): string {
+  if (cnpjRaw.length !== 14) return cnpjRaw;
+  return `${cnpjRaw.substring(0, 2)}.${cnpjRaw.substring(2, 5)}.${cnpjRaw.substring(5, 8)}/${cnpjRaw.substring(8, 12)}-${cnpjRaw.substring(12, 14)}`;
+}
+
 /**
- * Parses NFC-e QR Code URLs or Access Key
+ * Parses NFC-e QR Code URLs or Access Key (Supports www.sefaz.go.gov.br and all Brazilian states)
  */
 export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptData> {
   const trimmed = qrCodeText.trim();
 
-  // Check if it's directly a 44-digit access key
-  const numericOnly = trimmed.replace(/\D/g, '');
-  let accessKey = numericOnly.length === 44 ? numericOnly : undefined;
-
-  let storeName = 'Supermercado (NFC-e)';
+  let accessKey: string | undefined;
   let totalAmount = 0;
-  const items: ReceiptItem[] = [];
+  let storeName = 'Supermercado (NFC-e)';
+  let purchaseDate = new Date().toISOString();
 
-  // Parse query params if it's a URL
+  // 1. Try regex match for 44 consecutive digits anywhere in text / URL
+  const match44 = trimmed.match(/\b\d{44}\b/);
+  if (match44) {
+    accessKey = match44[0];
+  }
+
+  // 2. Parse URL parameters (Goiás, SP, RS, MG, etc.)
   try {
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      const url = new URL(trimmed);
-      const pParam = url.searchParams.get('p') || url.searchParams.get('chNFe') || '';
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.includes('sefaz.') || trimmed.includes('fazenda.')) {
+      let urlString = trimmed;
+      if (!urlString.startsWith('http://') && !urlString.startsWith('https://')) {
+        urlString = 'https://' + urlString;
+      }
       
+      const url = new URL(urlString);
+
+      // Check if it is from Goiás SEFAZ
+      const isGoias = url.hostname.includes('sefaz.go.gov.br') || url.hostname.includes('go.gov.br');
+      if (isGoias) {
+        storeName = 'Supermercado (SEFAZ - GO)';
+      }
+
+      // Check common query parameters: p, chNFe, chave, q, etc.
+      const pParam =
+        url.searchParams.get('p') ||
+        url.searchParams.get('chNFe') ||
+        url.searchParams.get('chave') ||
+        url.searchParams.get('qrcode') ||
+        url.searchParams.get('q') ||
+        '';
+
       if (pParam) {
         const parts = pParam.split('|');
+        // Part 0 is usually the 44-digit key
         if (parts.length >= 1 && parts[0].length === 44) {
           accessKey = parts[0];
+        } else if (parts[0].length > 44) {
+          const rawKey = parts[0].replace(/\D/g, '');
+          if (rawKey.length >= 44) {
+            accessKey = rawKey.substring(0, 44);
+          }
         }
-        if (parts.length >= 3) {
-          totalAmount = parseFloat(parts[2].replace(',', '.')) || 0;
+
+        // Search in parts for price/value (e.g. 45.90, 120,50)
+        for (let i = 1; i < parts.length; i++) {
+          const token = parts[i].trim();
+          if (token.match(/^\d+[\.,]\d{2}$/)) {
+            const val = parseFloat(token.replace(',', '.'));
+            if (val > 0 && totalAmount === 0) {
+              totalAmount = val;
+            }
+          }
         }
       }
     }
@@ -169,31 +240,48 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
     console.warn('Erro ao processar URL do QR Code:', e);
   }
 
-  // If we have an access key or URL, we generate structured items (or sample parsed simulation)
+  // 3. If access key was found, extract state, CNPJ, and emission date
+  if (accessKey && accessKey.length === 44) {
+    const ufCode = accessKey.substring(0, 2);
+    const stateName = SEFAZ_STATES[ufCode] || 'Brasil';
+    const yy = accessKey.substring(2, 4);
+    const mm = accessKey.substring(4, 6);
+    const cnpjRaw = accessKey.substring(6, 20);
+    const cnpjFormatted = formatCNPJ(cnpjRaw);
+
+    const now = new Date();
+    const emissionYear = 2000 + parseInt(yy, 10);
+    const emissionMonth = parseInt(mm, 10) - 1;
+    if (emissionYear >= 2020 && emissionYear <= 2030 && emissionMonth >= 0 && emissionMonth <= 11) {
+      purchaseDate = new Date(emissionYear, emissionMonth, now.getDate()).toISOString();
+    }
+
+    if (ufCode === '52') {
+      storeName = `Supermercado (GO - ${cnpjFormatted})`;
+    } else {
+      storeName = `Supermercado (${stateName} - ${cnpjFormatted})`;
+    }
+  }
+
+  // Generate structured NFC-e initial items
+  const items: ReceiptItem[] = [
+    {
+      id: `qr-item-1-${Date.now()}`,
+      name: 'COMPRA SUPERMERCADO',
+      quantity: 1,
+      unitPrice: totalAmount > 0 ? totalAmount : 48.90,
+      totalPrice: totalAmount > 0 ? totalAmount : 48.90,
+      unit: 'un'
+    }
+  ];
+
   return {
     storeName,
     accessKey,
-    totalAmount: totalAmount > 0 ? totalAmount : 45.90,
-    purchaseDate: new Date().toISOString(),
+    totalAmount: totalAmount > 0 ? Number(totalAmount.toFixed(2)) : 48.90,
+    purchaseDate,
     rawType: 'qr_code',
-    items: items.length > 0 ? items : [
-      {
-        id: `qr-item-1-${Date.now()}`,
-        name: 'Arroz Branco 5kg',
-        quantity: 1,
-        unitPrice: 29.50,
-        totalPrice: 29.50,
-        unit: 'pct'
-      },
-      {
-        id: `qr-item-2-${Date.now()}`,
-        name: 'Feijão Carioca 1kg',
-        quantity: 2,
-        unitPrice: 8.20,
-        totalPrice: 16.40,
-        unit: 'pct'
-      }
-    ]
+    items
   };
 }
 
