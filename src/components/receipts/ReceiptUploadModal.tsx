@@ -19,7 +19,7 @@ import {
   ParsedReceiptData
 } from '../../services/receiptParser';
 import {
-  extractReceiptWithAI,
+  extractReceiptFromMultipleImages,
   getGeminiApiKey,
   saveGeminiApiKey
 } from '../../services/aiReceiptExtractor';
@@ -75,30 +75,32 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
     }
   };
 
-  // 2. Process Receipt Image via AI / OCR
+  // 2. Process Receipt Image(s) via AI / OCR
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     setIsProcessing(true);
     setErrorMessage(null);
     setOcrProgress(10);
-    setOcrStatus('Preparando imagem do cupom...');
+    setOcrStatus(`Preparando ${files.length} foto(s) do cupom...`);
 
     try {
-      const parsedData = await extractReceiptWithAI(file, (prog, status) => {
+      const parsedData = await extractReceiptFromMultipleImages(Array.from(files), (prog, status) => {
         setOcrProgress(prog);
         setOcrStatus(status);
       });
 
       if (parsedData.items.length === 0) {
-        throw new Error('Não foi possível identificar os produtos na foto. Tente uma imagem mais nítida ou use o QR Code.');
+        throw new Error(
+          'Não foi possível identificar os produtos nas fotos. Tente fotos mais nítidas ou use o QR Code.'
+        );
       }
 
       onReceiptParsed(parsedData);
       onClose();
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro no reconhecimento da foto do cupom.');
+      setErrorMessage(err.message || 'Erro no reconhecimento das fotos do cupom.');
     } finally {
       setIsProcessing(false);
     }
@@ -365,16 +367,17 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                     <label className="block p-5 bg-slate-50 dark:bg-slate-850 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 cursor-pointer transition-colors">
                       <Camera className="w-8 h-8 text-emerald-600 mx-auto mb-1" />
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-0.5">
-                        Escolher Foto da Galeria
+                        Escolher 1 ou Mais Fotos da Galeria
                       </span>
                       <span className="text-[11px] text-slate-400 block mb-2">
-                        JPG, PNG com otimização automática de nitidez
+                        Selecione as fotos das partes do cupom fiscal (JPG, PNG)
                       </span>
                       <span className="px-4 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-semibold inline-block">
-                        Carregar Imagem
+                        Carregar Fotos
                       </span>
                       <input
                         type="file"
+                        multiple
                         accept="image/*"
                         onChange={handleImageUpload}
                         className="hidden"
