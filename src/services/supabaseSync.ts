@@ -214,6 +214,30 @@ export async function logoutUser(): Promise<void> {
     await client.auth.signOut().catch(console.error);
   }
   saveCurrentSession(null);
+
+  // Clear all local tables so app stays completely empty when logged out
+  await db.transaction(
+    'rw',
+    [
+      db.products,
+      db.shoppingLists,
+      db.shoppingListItems,
+      db.reminders,
+      db.householdMembers,
+      db.receipts,
+      db.priceRecords
+    ],
+    async () => {
+      await db.products.clear();
+      await db.shoppingLists.clear();
+      await db.shoppingListItems.clear();
+      await db.reminders.clear();
+      await db.householdMembers.clear();
+      await db.receipts.clear();
+      await db.priceRecords.clear();
+    }
+  );
+
   currentSyncStatus = {
     ...currentSyncStatus,
     isRealtimeActive: false

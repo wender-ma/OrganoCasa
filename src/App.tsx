@@ -39,14 +39,16 @@ export const App: React.FC = () => {
   const [reconciliationItems, setReconciliationItems] = useState<ReconciliationItem[]>([]);
   const [isReconciliationOpen, setIsReconciliationOpen] = useState(false);
 
-  // Seed DB on mount & initialize cloud sync
+  // Initialize cloud sync if logged in, or clean local DB if not logged in
   useEffect(() => {
-    seedDatabase()
-      .then(() => {
-        triggerFullSync().catch(console.warn);
-        setupRealtimeSubscriptions();
-      })
-      .catch((e) => console.error('Erro ao inicializar DB:', e));
+    const session = typeof localStorage !== 'undefined' && localStorage.getItem('organocasa_user_session');
+    if (session) {
+      triggerFullSync().catch(console.warn);
+      setupRealtimeSubscriptions();
+    } else {
+      // Not logged in: wipe demo items so the app is completely empty
+      seedDatabase().catch(console.warn);
+    }
   }, []);
 
   const handleReceiptParsed = async (data: ParsedReceiptData) => {
