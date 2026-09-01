@@ -365,13 +365,48 @@ export const INITIAL_PRODUCTS: Array<{
 ];
 
 export async function clearSeedData() {
-  await db.transaction('rw', [db.shoppingListItems, db.shoppingLists, db.reminders, db.products, db.priceRecords], async () => {
-    // Delete any items created with SEED_TIMESTAMP
-    await db.shoppingListItems.where('createdAt').equals(SEED_TIMESTAMP).delete();
-    await db.shoppingLists.where('createdAt').equals(SEED_TIMESTAMP).delete();
-    await db.reminders.where('createdAt').equals(SEED_TIMESTAMP).delete();
-    await db.products.where('createdAt').equals(SEED_TIMESTAMP).delete();
-  });
+  try {
+    await db.transaction(
+      'rw',
+      [db.shoppingListItems, db.shoppingLists, db.reminders, db.products, db.priceRecords],
+      async () => {
+        await db.shoppingListItems
+          .filter(
+            (i) =>
+              i.createdAt === SEED_TIMESTAMP ||
+              i.id.startsWith('seed-') ||
+              i.id === 'item-1' ||
+              i.id === 'item-2' ||
+              i.id === 'item-3' ||
+              i.id === 'item-4' ||
+              i.id === 'item-5'
+          )
+          .delete();
+        await db.shoppingLists
+          .filter((l) => l.createdAt === SEED_TIMESTAMP || l.id === 'list-default')
+          .delete();
+        await db.reminders
+          .filter(
+            (r) =>
+              r.createdAt === SEED_TIMESTAMP ||
+              r.id.startsWith('seed-') ||
+              r.id === 'rem-1' ||
+              r.id === 'rem-2'
+          )
+          .delete();
+        await db.products
+          .filter(
+            (p) =>
+              p.createdAt === SEED_TIMESTAMP ||
+              p.id.startsWith('prod-arroz-5kg') ||
+              p.id.startsWith('prod-feijao-1kg')
+          )
+          .delete();
+      }
+    );
+  } catch (err) {
+    console.warn('Aviso ao limpar dados de seed:', err);
+  }
 }
 
 export async function seedDatabase() {

@@ -20,8 +20,8 @@ export class OrganoCasaDatabase extends Dexie {
 
   constructor() {
     super('OrganoCasaDB');
-    this.version(1).stores({
-      products: 'id, name, category, barcode, lastPrice, averagePrice, updatedAt',
+    this.version(2).stores({
+      products: 'id, name, category, barcode, lastPrice, averagePrice, createdAt, updatedAt',
       priceRecords: 'id, productId, receiptId, storeName, date',
       shoppingLists: 'id, title, isDefault, status, createdAt, updatedAt',
       shoppingListItems: 'id, listId, productId, name, category, isChecked, createdAt, updatedAt',
