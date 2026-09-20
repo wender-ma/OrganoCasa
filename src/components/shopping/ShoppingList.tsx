@@ -4,7 +4,11 @@ import {
   ReceiptText,
   Trash2,
   RotateCcw,
-  Sparkles
+  Sparkles,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { ProductCategory, Product, ShoppingListItem } from '../../types';
 import { useShoppingList } from '../../hooks/useShoppingList';
@@ -43,14 +47,19 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null);
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
+  const [isCompletedExpanded, setIsCompletedExpanded] = useState(true);
 
   // Filter items by category
   const filteredItems = selectedCategory === 'Todas'
     ? items
     : items.filter((item) => item.category === selectedCategory);
 
-  // Group filtered items by category
-  const categoriesPresent = Array.from(new Set(filteredItems.map((i) => i.category)));
+  // Separate pending items (top of page) from checked items (bottom aggregator)
+  const pendingItems = filteredItems.filter((item) => !item.isChecked);
+  const completedItems = filteredItems.filter((item) => item.isChecked);
+
+  // Group pending items by category
+  const pendingCategoriesPresent = Array.from(new Set(pendingItems.map((i) => i.category)));
 
   const handleSelectBrand = async (itemId: string, brand: string) => {
     await updateItem(itemId, { selectedBrand: brand });
@@ -144,7 +153,9 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
       {/* Action Toolbar: Add Item, Clear Checked, Uncheck All */}
       <div className="flex items-center justify-between px-1">
         <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-          Itens da Lista ({filteredItems.length})
+          {completedItems.length > 0
+            ? `Pendentes (${pendingItems.length}) • Concluídos (${completedItems.length})`
+            : `Itens da Lista (${filteredItems.length})`}
         </span>
 
         <div className="flex items-center space-x-1.5">
@@ -203,24 +214,98 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
           </button>
         </div>
       ) : (
-        <div className="space-y-5">
-          {categoriesPresent.map((cat) => {
-            const categoryItems = filteredItems.filter((i) => i.category === cat);
-            const icon = CATEGORY_ICONS[cat] || '📦';
+        <div className="space-y-6">
+          {/* Top Section: Pending Items */}
+          {pendingItems.length === 0 && completedItems.length > 0 ? (
+            <div className="p-5 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-3xl text-center space-y-2 animate-in fade-in duration-200">
+              <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/60 rounded-full flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-300">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <h4 className="font-bold text-sm text-emerald-900 dark:text-emerald-200">
+                Tudo comprado! 🎉
+              </h4>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                Você já marcou todos os itens da lista. Eles estão organizados no bloco de finalizados abaixo.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {pendingCategoriesPresent.map((cat) => {
+                const categoryItems = pendingItems.filter((i) => i.category === cat);
+                const icon = CATEGORY_ICONS[cat] || '📦';
 
-            return (
-              <div key={cat} className="space-y-2">
-                {/* Category Subheader */}
-                <div className="flex items-center space-x-2 px-1">
-                  <span className="text-sm">{icon}</span>
-                  <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 tracking-wide uppercase">
-                    {cat} ({categoryItems.length})
-                  </h3>
+                return (
+                  <div key={cat} className="space-y-2">
+                    {/* Category Subheader */}
+                    <div className="flex items-center space-x-2 px-1">
+                      <span className="text-sm">{icon}</span>
+                      <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 tracking-wide uppercase">
+                        {cat} ({categoryItems.length})
+                      </h3>
+                    </div>
+
+                    {/* Items under this category */}
+                    <div className="space-y-2">
+                      {categoryItems.map((item) => {
+                        const matchedProduct = products.find((p) => p.id === item.productId);
+                        return (
+                          <ShoppingItemCard
+                            key={item.id}
+                            item={item}
+                            product={matchedProduct}
+                            onToggle={toggleItem}
+                            onUpdateQuantity={updateItemQuantity}
+                            onRemove={removeItem}
+                            onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
+                            onEdit={(it) => setEditingItem(it)}
+                            onSelectBrand={handleSelectBrand}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Bottom Section: Completed / Checked Items Aggregator */}
+          {completedItems.length > 0 && (
+            <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 space-y-3">
+              <button
+                type="button"
+                onClick={() => setIsCompletedExpanded((prev) => !prev)}
+                className="w-full flex items-center justify-between p-3.5 bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-800 rounded-2xl transition-all text-left group shadow-xs"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-7 h-7 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-xs">
+                    <Check className="w-4 h-4 stroke-[3]" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
+                      Comprados / Finalizados ({completedItems.length})
+                    </h4>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Itens marcados no carrinho (clique para {isCompletedExpanded ? 'ocultar' : 'ver'})
+                    </span>
+                  </div>
                 </div>
 
-                {/* Items under this category */}
-                <div className="space-y-2">
-                  {categoryItems.map((item) => {
+                <div className="flex items-center space-x-2 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200">
+                  <span className="text-[11px] font-semibold hidden sm:inline">
+                    {isCompletedExpanded ? 'Recolher' : 'Expandir'}
+                  </span>
+                  {isCompletedExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </div>
+              </button>
+
+              {isCompletedExpanded && (
+                <div className="space-y-2 animate-in slide-in-from-top-2 duration-150">
+                  {completedItems.map((item) => {
                     const matchedProduct = products.find((p) => p.id === item.productId);
                     return (
                       <ShoppingItemCard
@@ -237,9 +322,9 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                     );
                   })}
                 </div>
-              </div>
-            );
-          })}
+              )}
+            </div>
+          )}
         </div>
       )}
 

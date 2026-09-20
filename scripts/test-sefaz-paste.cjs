@@ -32,3 +32,4 @@ function testParseTabTable() {
 testParseSefazDanfeRow();
 testParseTabTable();
 console.log('All SEFAZ paste parsing tests passed!');
+
