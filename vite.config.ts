@@ -30,7 +30,8 @@ function sefazApiPlugin() {
             end: () => res.end()
           };
           try {
-            const { default: handler } = await import('./api/fetch-sefaz');
+            const mod = await import('./api/fetch-sefaz.js');
+            const handler = mod.default || mod;
             await handler(req, customRes);
           } catch (err: any) {
             res.statusCode = 500;
