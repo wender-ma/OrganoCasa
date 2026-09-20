@@ -58,11 +58,18 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
       setErrorMessage(null);
 
       try {
+        console.log('[ReceiptUploadModal] Processando QR Code:', qrString);
         const parsed = await parseQRCodeUrl(qrString);
+        console.log('[ReceiptUploadModal] Dados parseados do QR Code:', {
+          storeName: parsed.storeName,
+          accessKey: parsed.accessKey,
+          itemCount: parsed.items?.length,
+          items: parsed.items
+        });
         onReceiptParsed(parsed);
         onClose();
       } catch (err: any) {
-        console.warn('Erro ao processar QR Code:', err);
+        console.warn('[ReceiptUploadModal] Erro ao processar QR Code:', err);
         setErrorMessage(
           err.message ||
             'Não foi possível ler os produtos do link da NFC-e. Você pode tirar foto do cupom ou carregar o XML.'

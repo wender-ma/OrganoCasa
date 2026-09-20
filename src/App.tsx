@@ -52,8 +52,15 @@ export const App: React.FC = () => {
   }, []);
 
   const handleReceiptParsed = async (data: ParsedReceiptData) => {
+    console.log('[App] handleReceiptParsed recebido com itens:', data.items?.length);
     setReconciliationReceipt(data);
     const generated = await generateReconciliation(data.items, items);
+    console.log('[App] Reconciliação gerada:', {
+      total: generated.length,
+      matched: generated.filter((i) => i.status === 'matched').length,
+      unplanned: generated.filter((i) => i.status === 'unplanned').length,
+      unbought: generated.filter((i) => i.status === 'unbought').length
+    });
     setReconciliationItems(generated);
     setIsReconciliationOpen(true);
   };

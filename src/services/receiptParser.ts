@@ -216,18 +216,30 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
 
   // 4. Se online, consultar a API serverless da SEFAZ
   if (typeof window !== 'undefined' && navigator.onLine && (trimmed.startsWith('http') || (accessKey && accessKey.length === 44))) {
+    const payload = {
+      url: meta.rawUrl || (trimmed.startsWith('http') ? trimmed : undefined),
+      accessKey
+    };
+    console.log('[QR:SEFAZ] Consultando API serverless /api/fetch-sefaz com:', payload);
+
     try {
       const sefazRes = await fetch('/api/fetch-sefaz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: meta.rawUrl || (trimmed.startsWith('http') ? trimmed : undefined),
-          accessKey
-        })
+        body: JSON.stringify(payload)
       });
+
+      console.log('[QR:SEFAZ] Resposta HTTP /api/fetch-sefaz:', sefazRes.status, sefazRes.statusText);
 
       if (sefazRes.ok) {
         const sefazJson = await sefazRes.json();
+        console.log('[QR:SEFAZ] Payload retornado pela SEFAZ:', {
+          success: sefazJson.success,
+          storeName: sefazJson.storeName,
+          itemCount: sefazJson.items?.length,
+          items: sefazJson.items
+        });
+
         if (sefazJson.success && Array.isArray(sefazJson.items) && sefazJson.items.length > 0) {
           return {
             storeName: sefazJson.storeName || storeName,
@@ -244,10 +256,15 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
               unit: it.unit || 'un'
             }))
           };
+        } else {
+          console.warn('[QR:SEFAZ] SEFAZ respondeu, mas sem itens parseados:', sefazJson);
         }
+      } else {
+        const errText = await sefazRes.text().catch(() => '');
+        console.warn('[QR:SEFAZ] Erro na resposta da API /api/fetch-sefaz:', sefazRes.status, errText);
       }
     } catch (apiErr) {
-      console.warn('Consulta online SEFAZ indisponível, usando metadados locais:', apiErr);
+      console.warn('[QR:SEFAZ] Exceção ao consultar API serverless SEFAZ:', apiErr);
     }
   }
 
