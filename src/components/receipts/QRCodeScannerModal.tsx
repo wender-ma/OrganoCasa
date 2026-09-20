@@ -1,11 +1,34 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { X, QrCode, Camera, AlertCircle, FlipHorizontal, Loader2, ImagePlus } from 'lucide-react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { X, QrCode, Camera, AlertCircle, FlipHorizontal, Loader2, ImagePlus, CheckCircle2 } from 'lucide-react';
+import jsQR from 'jsqr';
 
 interface QRCodeScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   onScanSuccess: (decodedText: string) => void;
+}
+
+function playBeepSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.16);
+  } catch {
+    // Ignore audio context autoplay errors
+  }
 }
 
 export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
@@ -17,123 +40,191 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [isStarting, setIsStarting] = useState(false);
-  const [scanSuccess, setScanSuccess] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const mountedRef = useRef(true);
-  const containerId = 'qr-scanner-viewport';
+  const [scannedCode, setScannedCode] = useState<string | null>(null);
 
-  // Cleanup scanner safely
-  const cleanupScanner = useCallback(async () => {
-    const scanner = scannerRef.current;
-    if (!scanner) return;
-    try {
-      const state = scanner.getState();
-      // state 2 = SCANNING, state 3 = PAUSED
-      if (state === 2 || state === 3) {
-        await scanner.stop();
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const scanningRef = useRef<boolean>(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const barcodeDetectorRef = useRef<any>(null);
+
+  // Initialize Native BarcodeDetector if available
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+      try {
+        barcodeDetectorRef.current = new (window as any).BarcodeDetector({
+          formats: ['qr_code']
+        });
+      } catch {
+        barcodeDetectorRef.current = null;
       }
-      scanner.clear();
-    } catch (e) {
-      // Ignore cleanup errors
     }
-    scannerRef.current = null;
+  }, []);
+
+  // Stop camera tracks safely
+  const stopCamera = useCallback(() => {
+    scanningRef.current = false;
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
   }, []);
 
   // Handle successful scan
-  const handleScanResult = useCallback((decodedText: string) => {
-    if (scanSuccess) return; // prevent double-fire
-    setScanSuccess(true);
-    
-    if ('vibrate' in navigator) {
-      try { navigator.vibrate(100); } catch {}
-    }
+  const handleScanResult = useCallback(
+    (decodedText: string) => {
+      if (scannedCode) return; // Prevent double fire
+      const cleanText = decodedText.trim();
+      if (!cleanText) return;
 
-    // Stop scanner first, then notify parent
-    const scanner = scannerRef.current;
-    if (scanner) {
-      try {
-        const state = scanner.getState();
-        if (state === 2 || state === 3) {
-          scanner.stop().catch(() => {}).finally(() => {
-            onScanSuccess(decodedText);
-            onClose();
-          });
-          return;
-        }
-      } catch {}
-    }
-    onScanSuccess(decodedText);
-    onClose();
-  }, [scanSuccess, onScanSuccess, onClose]);
+      setScannedCode(cleanText);
+      stopCamera();
 
-  // Start camera scanner
-  useEffect(() => {
-    if (!isOpen) {
-      cleanupScanner();
-      setScanSuccess(false);
-      return;
-    }
+      // Audio & Haptic Feedback
+      playBeepSound();
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try {
+          navigator.vibrate(100);
+        } catch {}
+      }
 
-    mountedRef.current = true;
-    setCameraError(null);
-    setIsStarting(true);
-    setScanSuccess(false);
+      // Small delay for visual confirmation before notifying parent
+      setTimeout(() => {
+        onScanSuccess(cleanText);
+        onClose();
+      }, 350);
+    },
+    [scannedCode, stopCamera, onScanSuccess, onClose]
+  );
 
-    const startTimer = setTimeout(async () => {
-      try {
-        await cleanupScanner();
+  // Scanning loop
+  const scanLoop = useCallback(async () => {
+    if (!scanningRef.current || !videoRef.current) return;
+    const video = videoRef.current;
 
-        if (!mountedRef.current) return;
-
-        const scanner = new Html5Qrcode(containerId, {
-          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-          verbose: false
-        });
-        scannerRef.current = scanner;
-
-        // Use simple facingMode - this is the most compatible approach
-        // Do NOT call getCameras() first, it causes permission issues on mobile
-        await scanner.start(
-          { facingMode },
-          {
-            fps: 15,
-            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-              const size = Math.max(160, Math.floor(minEdge * 0.72));
-              return { width: size, height: size };
-            },
-            disableFlip: false
-          },
-          (decodedText) => {
-            handleScanResult(decodedText);
-          },
-          () => {
-            // Ignore per-frame errors
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      // 1. Try Native Hardware BarcodeDetector first (Chromium / Android)
+      if (barcodeDetectorRef.current) {
+        try {
+          const barcodes = await barcodeDetectorRef.current.detect(video);
+          if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+            handleScanResult(barcodes[0].rawValue);
+            return;
           }
-        );
-
-        if (mountedRef.current) {
-          setIsStarting(false);
-        }
-      } catch (err: any) {
-        console.warn('Camera QR error:', err);
-        if (mountedRef.current) {
-          setIsStarting(false);
-          setCameraError(
-            'Câmera indisponível. Use "Foto da Galeria" para ler um QR Code de uma imagem, ou cole o link/chave abaixo.'
-          );
+        } catch {
+          // Fall back to jsQR
         }
       }
-    }, 300);
+
+      // 2. jsQR Fallback on Canvas frame (iOS Safari, Firefox, Desktop)
+      const vWidth = video.videoWidth;
+      const vHeight = video.videoHeight;
+
+      if (vWidth > 0 && vHeight > 0) {
+        if (!canvasRef.current) {
+          canvasRef.current = document.createElement('canvas');
+        }
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        if (ctx) {
+          // Scale down to max 640px for fast decoding without losing QR resolution
+          const scale = Math.min(1, 640 / Math.max(vWidth, vHeight));
+          const targetW = Math.round(vWidth * scale);
+          const targetH = Math.round(vHeight * scale);
+
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+          }
+
+          ctx.drawImage(video, 0, 0, targetW, targetH);
+          const imgData = ctx.getImageData(0, 0, targetW, targetH);
+
+          const qrResult = jsQR(imgData.data, targetW, targetH, {
+            inversionAttempts: 'dontInvert'
+          });
+
+          if (qrResult && qrResult.data) {
+            handleScanResult(qrResult.data);
+            return;
+          }
+        }
+      }
+    }
+
+    if (scanningRef.current) {
+      animFrameRef.current = requestAnimationFrame(scanLoop);
+    }
+  }, [handleScanResult]);
+
+  // Start Camera Stream
+  const startCamera = useCallback(async () => {
+    stopCamera();
+    setIsStarting(true);
+    setCameraError(null);
+    setScannedCode(null);
+
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Navegador não suporta acesso à câmera.');
+      }
+
+      // Use flexible constraints to ensure camera opens on all devices without OverconstrainedError
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+
+        scanningRef.current = true;
+        setIsStarting(false);
+        animFrameRef.current = requestAnimationFrame(scanLoop);
+      }
+    } catch (err: any) {
+      console.warn('Erro ao abrir câmera:', err);
+      setIsStarting(false);
+      setCameraError(
+        err.name === 'NotAllowedError'
+          ? 'Permissão de câmera negada. Permita o acesso nas configurações do seu navegador.'
+          : 'Não foi possível iniciar a câmera. Use "Foto da Galeria" ou cole o link abaixo.'
+      );
+    }
+  }, [facingMode, stopCamera, scanLoop]);
+
+  // Lifecycle
+  useEffect(() => {
+    if (isOpen) {
+      startCamera();
+    } else {
+      stopCamera();
+      setScannedCode(null);
+      setCameraError(null);
+    }
 
     return () => {
-      mountedRef.current = false;
-      clearTimeout(startTimer);
-      cleanupScanner();
+      stopCamera();
     };
-  }, [isOpen, facingMode]);
+  }, [isOpen, facingMode, startCamera, stopCamera]);
 
-  // Scan QR from image file
+  // Handle image upload from gallery
   const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -142,26 +233,59 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     setCameraError(null);
 
     try {
-      await cleanupScanner();
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
 
-      const scanner = new Html5Qrcode(containerId, {
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-        verbose: false
-      });
+      img.onload = async () => {
+        URL.revokeObjectURL(objectUrl);
 
-      const decodedText = await scanner.scanFile(file, true);
-      scanner.clear();
-      
-      if (decodedText) {
-        handleScanResult(decodedText);
-      } else {
-        setCameraError('Nenhum QR Code encontrado na imagem.');
-      }
-    } catch (err: any) {
-      console.warn('QR image scan error:', err);
-      setCameraError('Não foi possível ler o QR Code desta imagem. Tente outra foto mais nítida.');
-    } finally {
+        // 1. Try Native BarcodeDetector
+        if (barcodeDetectorRef.current) {
+          try {
+            const barcodes = await barcodeDetectorRef.current.detect(img);
+            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+              setIsStarting(false);
+              handleScanResult(barcodes[0].rawValue);
+              return;
+            }
+          } catch {}
+        }
+
+        // 2. Try jsQR
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const qr = jsQR(imgData.data, canvas.width, canvas.height, {
+            inversionAttempts: 'attemptBoth'
+          });
+
+          if (qr && qr.data) {
+            setIsStarting(false);
+            handleScanResult(qr.data);
+            return;
+          }
+        }
+
+        setIsStarting(false);
+        setCameraError('Nenhum QR Code legível foi encontrado nesta foto. Tente uma foto mais nítida.');
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        setIsStarting(false);
+        setCameraError('Erro ao abrir o arquivo da imagem.');
+      };
+
+      img.src = objectUrl;
+    } catch {
       setIsStarting(false);
+      setCameraError('Falha ao processar o arquivo.');
+    } finally {
       e.target.value = '';
     }
   };
@@ -170,14 +294,12 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     e.preventDefault();
     const val = manualInput.trim();
     if (val) {
-      onScanSuccess(val);
+      handleScanResult(val);
       setManualInput('');
-      onClose();
     }
   };
 
-  const toggleCamera = async () => {
-    await cleanupScanner();
+  const toggleCamera = () => {
     setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
   };
 
@@ -185,7 +307,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col space-y-3.5">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col space-y-3.5 animate-in zoom-in-95">
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center space-x-2">
@@ -196,7 +318,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
               <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base leading-tight">
                 Escanear QR Code da NFC-e
               </h3>
-              <p className="text-[11px] text-slate-400">SEFAZ-GO, SP, MG, RJ e todos os estados</p>
+              <p className="text-[11px] text-slate-400">SEFAZ Goiás, SP, MG, RJ e todos os estados</p>
             </div>
           </div>
           <button
@@ -207,29 +329,47 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           </button>
         </div>
 
-        {/* Camera Viewport */}
-        <div className="relative w-full max-w-[280px] aspect-square mx-auto bg-black rounded-2xl overflow-hidden shadow-inner border-2 border-emerald-500/30">
-          <div id={containerId} className="w-full h-full" />
+        {/* Camera Viewport (Square 1:1 without distortion) */}
+        <div className="relative w-full max-w-[280px] aspect-square mx-auto bg-black rounded-2xl overflow-hidden shadow-inner border-2 border-emerald-500/30 flex items-center justify-center">
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            className="w-full h-full object-cover"
+          />
 
-          {/* Corner brackets overlay */}
-          {!cameraError && !isStarting && (
-            <div className="absolute inset-3 pointer-events-none flex flex-col justify-between">
+          {/* Square Target Brackets Overlay */}
+          {!cameraError && !isStarting && !scannedCode && (
+            <div className="absolute inset-4 pointer-events-none flex flex-col justify-between p-1">
               <div className="flex justify-between">
-                <div className="w-6 h-6 border-t-3 border-l-3 border-emerald-400 rounded-tl-lg" />
-                <div className="w-6 h-6 border-t-3 border-r-3 border-emerald-400 rounded-tr-lg" />
+                <div className="w-8 h-8 border-t-3 border-l-3 border-emerald-400 rounded-tl-xl" />
+                <div className="w-8 h-8 border-t-3 border-r-3 border-emerald-400 rounded-tr-xl" />
               </div>
+
+              {/* Animated Laser Scanning Line */}
+              <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#10b981] animate-pulse" />
+
               <div className="flex justify-between">
-                <div className="w-6 h-6 border-b-3 border-l-3 border-emerald-400 rounded-bl-lg" />
-                <div className="w-6 h-6 border-b-3 border-r-3 border-emerald-400 rounded-br-lg" />
+                <div className="w-8 h-8 border-b-3 border-l-3 border-emerald-400 rounded-bl-xl" />
+                <div className="w-8 h-8 border-b-3 border-r-3 border-emerald-400 rounded-br-xl" />
               </div>
             </div>
           )}
 
-          {/* Loading */}
+          {/* Success Overlay */}
+          {scannedCode && (
+            <div className="absolute inset-0 bg-emerald-950/80 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2 z-10">
+              <CheckCircle2 className="w-12 h-12 text-emerald-400 animate-bounce" />
+              <span className="text-xs font-bold">QR Code Identificado!</span>
+            </div>
+          )}
+
+          {/* Starting / Loading State */}
           {isStarting && (
-            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-white space-y-2">
+            <div className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center text-white space-y-2 z-10">
               <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
-              <span className="text-xs">Iniciando câmera...</span>
+              <span className="text-xs">Iniciando leitor...</span>
             </div>
           )}
         </div>
@@ -257,7 +397,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           </label>
         </div>
 
-        {/* Error */}
+        {/* Error notification */}
         {cameraError && (
           <div className="p-3 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-800 dark:text-amber-300 text-xs flex items-start space-x-2">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -275,7 +415,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
               type="text"
               value={manualInput}
               onChange={(e) => setManualInput(e.target.value)}
-              placeholder="https://nfeweb.sefaz.go.gov.br/... ou 5226..."
+              placeholder="https://nfeweb.sefaz.go.gov.br/... ou 5224..."
               className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <button

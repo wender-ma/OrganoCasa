@@ -236,3 +236,4 @@ function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt 
     items
   };
 }
+
