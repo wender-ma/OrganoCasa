@@ -205,3 +205,4 @@ export function classifyScannedCode(rawText: string): ScannedCodeType {
     content: trimmed
   };
 }
+

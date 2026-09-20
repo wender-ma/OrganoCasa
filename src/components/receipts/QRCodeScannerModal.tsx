@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { X, QrCode, Camera, AlertCircle, FlipHorizontal, Loader2, ImagePlus, CheckCircle2, Bug } from 'lucide-react';
+import { X, QrCode, AlertCircle, FlipHorizontal, Loader2, ImagePlus, CheckCircle2, Bug } from 'lucide-react';
 import { useQrScanner } from '../../hooks/useQrScanner';
 
 interface QRCodeScannerModalProps {
@@ -16,17 +16,22 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
   const [manualInput, setManualInput] = useState('');
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  const [manualDebugToggle, setManualDebugToggle] = useState<boolean>(false);
 
-  // Ativa overlay de diagnóstico via URL (?debugScanner=1) ou localStorage
+  // Ativa overlay de diagnóstico via URL (?debugScanner=1), localStorage ou botão
   const isDebugMode = useMemo(() => {
+    if (manualDebugToggle) return true;
     if (typeof window === 'undefined') return false;
     const urlParams = new URLSearchParams(window.location.search);
-    return urlParams.get('debugScanner') === '1' || window.localStorage.getItem('debugScanner') === '1';
-  }, []);
+    return (
+      urlParams.get('debugScanner') === '1' ||
+      window.localStorage.getItem('debugScanner') === '1'
+    );
+  }, [manualDebugToggle]);
 
   const {
     videoRef,
-    isStarting,
+    scannerState,
     cameraError,
     scannedCode,
     debugInfo,
@@ -38,7 +43,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
   } = useQrScanner({
     facingMode: 'environment',
     onScanSuccess: (decodedText) => {
-      // Delay visual para exibir confirmação em verde
+      // Delay visual de 350ms para feedback verde antes de fechar
       setTimeout(() => {
         onScanSuccess(decodedText);
         onClose();
@@ -46,7 +51,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     }
   });
 
-  // Controle de ciclo de vida do modal
+  // Ciclo de vida do modal
   useEffect(() => {
     if (isOpen) {
       start();
@@ -57,7 +62,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     }
   }, [isOpen, start, stop]);
 
-  // Upload de imagem da galeria
+  // Upload de foto da galeria
   const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -71,7 +76,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
       if (result) {
         handleManualCode(result);
       } else {
-        setGalleryError('Nenhum QR Code legível foi encontrado nesta foto. Aproxime ou tente uma foto mais nítida.');
+        setGalleryError('Nenhum QR Code legível foi encontrado nesta foto. Tente aproximar da imagem.');
       }
     } catch {
       setGalleryLoading(false);
@@ -93,8 +98,8 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col space-y-3.5 animate-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full p-4 sm:p-5 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col space-y-3 animate-in zoom-in-95 max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center space-x-2">
@@ -108,16 +113,28 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
               <p className="text-[11px] text-slate-400">SEFAZ Goiás, SP, MG, RJ e todos os estados</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-1">
+            <button
+              onClick={() => setManualDebugToggle((prev) => !prev)}
+              className={`p-1.5 rounded-full transition-colors ${
+                isDebugMode ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/60' : 'text-slate-400 hover:text-slate-600'
+              }`}
+              title="Alternar Debug Overlay"
+            >
+              <Bug className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Viewport da Câmera (Quadrado 1:1 sem distorção) */}
-        <div className="relative w-full max-w-[280px] aspect-square mx-auto bg-black rounded-2xl overflow-hidden shadow-inner border-2 border-emerald-500/30 flex items-center justify-center">
+        {/* Viewport da Câmera (Quadrado 1:1) */}
+        <div className="relative w-full max-w-[270px] sm:max-w-[280px] aspect-square mx-auto bg-black rounded-2xl overflow-hidden shadow-inner border-2 border-emerald-500/30 flex items-center justify-center">
+          {/* Elemento de Vídeo SEMPRE no DOM e visível (Padrão 5.4) */}
           <video
             ref={videoRef}
             playsInline
@@ -126,17 +143,14 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
             className="w-full h-full object-cover"
           />
 
-          {/* Mira e Guias Visuais do Quadrado */}
-          {!cameraError && !isStarting && !scannedCode && !galleryLoading && (
-            <div className="absolute inset-4 pointer-events-none flex flex-col justify-between p-1">
+          {/* Mira Visual e Laser (exibida quando ativa) */}
+          {scannerState === 'scanning' && !scannedCode && (
+            <div className="absolute inset-4 pointer-events-none flex flex-col justify-between p-1 z-10">
               <div className="flex justify-between">
                 <div className="w-8 h-8 border-t-3 border-l-3 border-emerald-400 rounded-tl-xl" />
                 <div className="w-8 h-8 border-t-3 border-r-3 border-emerald-400 rounded-tr-xl" />
               </div>
-
-              {/* Linha Laser Animada */}
               <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#10b981] animate-pulse" />
-
               <div className="flex justify-between">
                 <div className="w-8 h-8 border-b-3 border-l-3 border-emerald-400 rounded-bl-xl" />
                 <div className="w-8 h-8 border-b-3 border-r-3 border-emerald-400 rounded-br-xl" />
@@ -144,7 +158,21 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
             </div>
           )}
 
-          {/* Feedback de Sucesso */}
+          {/* Indicador de Inicialização Não-Bloqueante (badge translúcido, não tela preta!) */}
+          {(scannerState === 'requesting' || scannerState === 'waitingVideo' || galleryLoading) && (
+            <div className="absolute inset-x-4 bottom-4 py-2 px-3 bg-black/75 backdrop-blur-xs rounded-xl border border-white/10 text-white flex items-center justify-center space-x-2 z-20">
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-400 shrink-0" />
+              <span className="text-[11px] font-medium truncate">
+                {galleryLoading
+                  ? 'Analisando foto...'
+                  : scannerState === 'requesting'
+                  ? 'Solicitando permissão...'
+                  : 'Sintonizando sinal da câmera...'}
+              </span>
+            </div>
+          )}
+
+          {/* Confirmação de Leitura com Sucesso */}
           {scannedCode && (
             <div className="absolute inset-0 bg-emerald-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2 z-20">
               <CheckCircle2 className="w-12 h-12 text-emerald-400 animate-bounce" />
@@ -152,32 +180,39 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
             </div>
           )}
 
-          {/* Estado de Carregamento / Inicialização */}
-          {(isStarting || galleryLoading) && (
-            <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center text-white space-y-2 z-20">
-              <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
-              <span className="text-xs font-medium">
-                {galleryLoading ? 'Analisando foto da galeria...' : 'Iniciando câmera...'}
-              </span>
-            </div>
-          )}
-
-          {/* Overlay de Diagnóstico em Tempo Real (?debugScanner=1) */}
+          {/* Debug Overlay Expandido com Telemetria em Tempo Real (?debugScanner=1) */}
           {isDebugMode && (
-            <div className="absolute top-2 left-2 right-2 p-2 bg-black/85 backdrop-blur-xs rounded-xl border border-emerald-500/40 text-[10px] text-white font-mono space-y-0.5 z-30 pointer-events-none">
-              <div className="flex items-center justify-between text-emerald-400 font-bold border-b border-white/10 pb-0.5 mb-1">
+            <div className="absolute inset-2 p-2 bg-black/90 backdrop-blur-sm rounded-xl border border-emerald-500/50 text-[9px] text-white font-mono space-y-0.5 z-30 overflow-y-auto pointer-events-none select-none">
+              <div className="flex items-center justify-between text-emerald-400 font-bold border-b border-white/10 pb-0.5 mb-0.5">
                 <span className="flex items-center gap-1">
-                  <Bug className="w-3 h-3" /> Scanner Debug
+                  <Bug className="w-2.5 h-2.5" /> Debug Telemetry
                 </span>
-                <span>{debugInfo.fps} FPS</span>
+                <span className="text-[10px] text-amber-300 font-bold">{debugInfo.fps} FPS</span>
               </div>
-              <div>Motor: <span className="text-amber-300">{debugInfo.engine}</span></div>
-              <div>HTTPS: <span className={debugInfo.isSecureContext ? 'text-emerald-400' : 'text-rose-400'}>{debugInfo.isSecureContext ? 'Sim' : 'Não (Inseguro)'}</span></div>
-              <div>ReadyState: <span className="text-cyan-300">{debugInfo.videoReadyState}</span> ({debugInfo.videoReadyState >= 2 ? 'OK' : 'Aguardando'})</div>
-              <div>Resolução: <span className="text-cyan-300">{debugInfo.videoWidth}x{debugInfo.videoHeight}</span></div>
-              {debugInfo.lastError && (
-                <div className="text-rose-400 truncate">Erro: {debugInfo.lastError}</div>
+              <div>Estado: <span className="text-cyan-300 font-bold uppercase">{debugInfo.state}</span></div>
+              <div>Motor: <span className="text-amber-300 font-semibold">{debugInfo.engine}</span></div>
+              <div>HTTPS: <span className={debugInfo.isSecureContext ? 'text-emerald-400' : 'text-rose-400'}>{debugInfo.isSecureContext ? 'OK' : 'INSEGURO'}</span></div>
+              <div>ReadyState: <span className="text-yellow-300">{debugInfo.videoReadyStateLabel}</span></div>
+              <div>Dimensões: <span className="text-cyan-300">{debugInfo.videoWidth}x{debugInfo.videoHeight}</span></div>
+              {debugInfo.lastGUMError && (
+                <div className="text-rose-400 font-bold">GUM Error: {debugInfo.lastGUMError.name} - {debugInfo.lastGUMError.message}</div>
               )}
+              {debugInfo.videoError && (
+                <div className="text-rose-400">Video Error Code: {debugInfo.videoError}</div>
+              )}
+              <div className="border-t border-white/10 pt-0.5 mt-0.5">
+                <span className="text-slate-400">Eventos de vídeo:</span>
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {debugInfo.videoEvents.map((ev, i) => (
+                    <span key={i} className="px-1 py-0.2 bg-slate-800 text-[8px] text-emerald-300 rounded">
+                      {ev.event}
+                    </span>
+                  ))}
+                  {debugInfo.videoEvents.length === 0 && (
+                    <span className="text-slate-500 text-[8px]">(nenhum evento ainda)</span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>

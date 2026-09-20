@@ -1,15 +1,27 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import jsQR from 'jsqr';
 
+export type ScannerState = 'idle' | 'requesting' | 'waitingVideo' | 'scanning' | 'error';
+
+export interface VideoEventLog {
+  event: string;
+  time: string;
+}
+
 export interface QrScannerDebugInfo {
+  state: ScannerState;
+  stateTransitions: { state: ScannerState; timestamp: string }[];
   engine: 'BarcodeDetector (Nativo)' | 'jsQR (Fallback CPU)' | 'Nenhum';
   isSecureContext: boolean;
   videoReadyState: number;
+  videoReadyStateLabel: string;
   videoWidth: number;
   videoHeight: number;
   fps: number;
+  videoError: string | null;
+  lastGUMError: { name: string; message: string } | null;
+  videoEvents: VideoEventLog[];
   lastResult: string | null;
-  lastError: string | null;
   facingMode: string;
 }
 
@@ -56,6 +68,77 @@ export async function supportsBarcodeDetector(): Promise<boolean> {
   }
 }
 
+function readyStateToLabel(state: number): string {
+  switch (state) {
+    case 0: return '0 (HAVE_NOTHING)';
+    case 1: return '1 (HAVE_METADATA)';
+    case 2: return '2 (HAVE_CURRENT_DATA)';
+    case 3: return '3 (HAVE_FUTURE_DATA)';
+    case 4: return '4 (HAVE_ENOUGH_DATA)';
+    default: return `${state} (DESCONHECIDO)`;
+  }
+}
+
+/**
+ * Padrão Canônico 5.2: Espera de vídeo à prova de race condition
+ * Anexa listeners sincronamente ANTES de qualquer await e valida se o vídeo já está pronto.
+ */
+function waitForVideoReady(
+  video: HTMLVideoElement,
+  onEvent: (name: string) => void,
+  timeoutMs = 8000
+): Promise<void> {
+  // 1) Se já tem dados prontos (>= HAVE_CURRENT_DATA), resolve imediatamente sem race
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
+    onEvent('already_ready');
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let cleanedUp = false;
+
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      clearTimeout(timer);
+      video.removeEventListener('loadeddata', onReady);
+      video.removeEventListener('playing', onReady);
+      video.removeEventListener('canplay', onReady);
+      video.removeEventListener('error', onError);
+    };
+
+    const onReady = (e: Event) => {
+      onEvent(e.type);
+      cleanup();
+      resolve();
+    };
+
+    const onError = () => {
+      onEvent('error');
+      cleanup();
+      const code = video.error ? video.error.code : 'desconhecido';
+      reject(new Error(`Erro no elemento de vídeo (código ${code})`));
+    };
+
+    const timer = setTimeout(() => {
+      onEvent('timeout');
+      cleanup();
+      // Se após o timeout o vídeo tem frame pintado, resolve em vez de falhar
+      if (video.videoWidth > 0 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        resolve();
+      } else {
+        reject(new Error(`Timeout aguardando sinal de vídeo (${timeoutMs}ms)`));
+      }
+    }, timeoutMs);
+
+    // 2) Anexa listeners sincronamente
+    video.addEventListener('loadeddata', onReady);
+    video.addEventListener('playing', onReady);
+    video.addEventListener('canplay', onReady);
+    video.addEventListener('error', onError);
+  });
+}
+
 /**
  * Som de beep suave ao ler o código com sucesso
  */
@@ -90,43 +173,64 @@ export function useQrScanner({
   dedupeDelayMs = 2000
 }: UseQrScannerOptions) {
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>(initialFacingMode);
-  const [isStarting, setIsStarting] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
+  const [scannerState, setScannerState] = useState<ScannerState>('idle');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scannedCode, setScannedCode] = useState<string | null>(null);
 
   const [debugInfo, setDebugInfo] = useState<QrScannerDebugInfo>({
+    state: 'idle',
+    stateTransitions: [{ state: 'idle', timestamp: new Date().toLocaleTimeString() }],
     engine: 'Nenhum',
     isSecureContext: typeof window !== 'undefined' ? window.isSecureContext : false,
     videoReadyState: 0,
+    videoReadyStateLabel: '0 (HAVE_NOTHING)',
     videoWidth: 0,
     videoHeight: 0,
     fps: 0,
+    videoError: null,
+    lastGUMError: null,
+    videoEvents: [],
     lastResult: null,
-    lastError: null,
     facingMode: initialFacingMode
   });
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scanIntervalRef = useRef<any>(null);
   const isProcessingFrameRef = useRef<boolean>(false);
   const barcodeDetectorRef = useRef<any>(null);
-  const nativeSupportedRef = useRef<boolean | null>(null);
-  const activeRequestIdRef = useRef<number>(0);
+  const activeStreamRef = useRef<MediaStream | null>(null);
+  const isCancelledRef = useRef<boolean>(false);
 
-  // Controle de FPS e deduplicação
+  // FPS e deduplicação
   const frameCountRef = useRef<number>(0);
   const fpsTimerRef = useRef<number>(Date.now());
   const lastDetectedRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
+
+  // Helper para atualizar estados e registrar transições no debug
+  const transitionState = useCallback((newState: ScannerState) => {
+    setScannerState(newState);
+    const now = new Date().toLocaleTimeString();
+    setDebugInfo((prev) => ({
+      ...prev,
+      state: newState,
+      stateTransitions: [...prev.stateTransitions.slice(-4), { state: newState, timestamp: now }]
+    }));
+  }, []);
+
+  const logVideoEvent = useCallback((event: string) => {
+    const now = new Date().toLocaleTimeString();
+    setDebugInfo((prev) => ({
+      ...prev,
+      videoEvents: [...prev.videoEvents.slice(-5), { event, time: now }]
+    }));
+  }, []);
 
   // 1. Inicializar detecção de motor (Nativo vs jsQR)
   useEffect(() => {
     let isMounted = true;
     supportsBarcodeDetector().then((supported) => {
       if (!isMounted) return;
-      nativeSupportedRef.current = supported;
       if (supported) {
         try {
           barcodeDetectorRef.current = new (window as any).BarcodeDetector({
@@ -147,30 +251,30 @@ export function useQrScanner({
     };
   }, []);
 
-  // 2. Parar câmera e limpar todas as tracks
+  // 2. Parar câmera e liberar tracks
   const stop = useCallback(() => {
-    activeRequestIdRef.current++;
+    isCancelledRef.current = true;
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
     }
     isProcessingFrameRef.current = false;
-    setIsScanning(false);
-    setIsStarting(false);
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach((track) => {
         try {
           track.stop();
         } catch {}
       });
-      streamRef.current = null;
+      activeStreamRef.current = null;
     }
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
-  }, []);
+
+    transitionState('idle');
+  }, [transitionState]);
 
   // 3. Processar resultado de leitura com deduplicação
   const handleDetected = useCallback(
@@ -180,7 +284,6 @@ export function useQrScanner({
 
       const now = Date.now();
       if (lastDetectedRef.current.text === clean && now - lastDetectedRef.current.time < dedupeDelayMs) {
-        // Ignora duplicata no intervalo de dedupeDelayMs
         return;
       }
 
@@ -188,7 +291,6 @@ export function useQrScanner({
       setScannedCode(clean);
       setDebugInfo((prev) => ({ ...prev, lastResult: clean }));
 
-      // Feedback sonoro e háptico
       playBeepSound();
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
         try {
@@ -201,13 +303,13 @@ export function useQrScanner({
     [dedupeDelayMs, onScanSuccess]
   );
 
-  // 4. Processamento de um único frame
+  // 4. Processamento contínuo de frame
   const processFrame = useCallback(async () => {
     if (isProcessingFrameRef.current) return;
     const video = videoRef.current;
     if (!video) return;
 
-    // Atualiza estatísticas de FPS a cada 1 segundo
+    // Atualiza FPS e estatísticas a cada 1s
     frameCountRef.current++;
     const now = Date.now();
     if (now - fpsTimerRef.current >= 1000) {
@@ -218,13 +320,14 @@ export function useQrScanner({
         ...prev,
         fps: currentFps,
         videoReadyState: video.readyState,
+        videoReadyStateLabel: readyStateToLabel(video.readyState),
         videoWidth: video.videoWidth,
         videoHeight: video.videoHeight
       }));
     }
 
-    // Regra crítica para iOS Safari: readyState precisa ser >= HAVE_CURRENT_DATA (2)
-    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+    // Validação estrita para iOS: precisa de readyState >= 2 e resolução real > 0
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0 || video.videoHeight === 0) {
       return;
     }
 
@@ -243,14 +346,12 @@ export function useQrScanner({
             isProcessingFrameRef.current = false;
             return;
           }
-        } catch (err: any) {
-          setDebugInfo((prev) => ({ ...prev, lastError: `BarcodeDetector: ${err.message}` }));
+        } catch {
+          // Fallback para jsQR em caso de erro no BarcodeDetector
         }
       }
 
-      // CAMINHO 2: jsQR Fallback (iOS Safari, Firefox, Desktop)
-      // Otimização óptica: Recorta a região central correspondente ao quadrado do visor na tela
-      // Mantém resolução alta (~720-900px) para decodificar até os QR codes densos da NFC-e
+      // CAMINHO 2: jsQR com recorte óptico central em alta densidade (800px)
       if (!canvasRef.current) {
         canvasRef.current = document.createElement('canvas');
       }
@@ -259,14 +360,13 @@ export function useQrScanner({
 
       if (ctx) {
         const minDim = Math.min(vWidth, vHeight);
-        const targetDim = Math.min(minDim, 800); // 800px oferece densidade ideal para NFC-e
+        const targetDim = Math.min(minDim, 800);
 
         if (canvas.width !== targetDim || canvas.height !== targetDim) {
           canvas.width = targetDim;
           canvas.height = targetDim;
         }
 
-        // Centro do vídeo (quadrado 1:1)
         const sx = (vWidth - minDim) / 2;
         const sy = (vHeight - minDim) / 2;
 
@@ -283,7 +383,7 @@ export function useQrScanner({
           return;
         }
 
-        // Se não encontrou no corte central, faz segunda passagem rápida na imagem completa reduzida
+        // Segunda passagem rápida no frame inteiro escalado se não detectou no centro
         const fullScale = Math.min(1, 720 / Math.max(vWidth, vHeight));
         const fullW = Math.round(vWidth * fullScale);
         const fullH = Math.round(vHeight * fullScale);
@@ -306,27 +406,23 @@ export function useQrScanner({
           return;
         }
       }
-    } catch (err: any) {
-      setDebugInfo((prev) => ({ ...prev, lastError: `jsQR: ${err.message}` }));
     } finally {
       isProcessingFrameRef.current = false;
     }
   }, [handleDetected]);
 
-  // 5. Iniciar Câmera
+  // 5. Iniciar Câmera (Padrões Canônicos 5.1, 5.2, 5.3 e 5.4)
   const start = useCallback(async () => {
     stop();
-
-    const requestId = ++activeRequestIdRef.current;
-    setIsStarting(true);
+    isCancelledRef.current = false;
     setCameraError(null);
     setScannedCode(null);
 
-    // Validação de contexto seguro (HTTPS)
+    // Validação de contexto seguro
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       const err = 'O acesso à câmera exige conexão segura (HTTPS). Acesse via HTTPS para escanear.';
       setCameraError(err);
-      setIsStarting(false);
+      transitionState('error');
       onError?.(err);
       return;
     }
@@ -334,119 +430,124 @@ export function useQrScanner({
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       const err = 'Este navegador não suporta acesso à câmera.';
       setCameraError(err);
-      setIsStarting(false);
+      transitionState('error');
       onError?.(err);
       return;
     }
 
-    try {
-      let stream: MediaStream;
-      try {
-        // Restrições ideais com foco contínuo
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            advanced: [{ focusMode: 'continuous' } as any]
-          },
-          audio: false
-        });
-      } catch {
-        // Fallback para dispositivos com restrições rígidas
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode },
-          audio: false
-        });
-      }
+    transitionState('requesting');
 
-      // Previne race conditions no React 18 StrictMode
-      if (requestId !== activeRequestIdRef.current) {
+    let stream: MediaStream | null = null;
+    try {
+      // Padrão 5.1: Constraints brandas (sem exact, sem advanced focusMode)
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      // Padrão 5.3: StrictMode guard contra montagens concorrentes
+      if (isCancelledRef.current) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
 
-      streamRef.current = stream;
+      activeStreamRef.current = stream;
 
       const video = videoRef.current;
-      if (!video) return;
+      if (!video) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
 
-      // Atributos obrigatórios para Safari/WebKit no iOS
+      // Padrão 5.4: Atributos obrigatórios para Safari/WebKit no iOS antes de atribuir srcObject
       video.setAttribute('playsinline', 'true');
       video.setAttribute('webkit-playsinline', 'true');
       video.setAttribute('muted', 'true');
       video.muted = true;
       video.autoplay = true;
 
-      video.srcObject = stream;
-
-      // Espera explícita de prontidão do vídeo antes de rodar o loop de detecção
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          if (video.videoWidth > 0 && video.readyState >= 2) {
-            resolve();
-          } else {
-            reject(new Error('Tempo esgotado aguardando sinal da câmera.'));
-          }
-        }, 3500);
-
-        const onPlaying = () => {
-          clearTimeout(timeout);
-          video.removeEventListener('playing', onPlaying);
-          video.removeEventListener('loadeddata', onPlaying);
-          resolve();
-        };
-
-        video.addEventListener('playing', onPlaying);
-        video.addEventListener('loadeddata', onPlaying);
-
-        video.play().catch((playErr) => {
-          clearTimeout(timeout);
-          // Trata política de autoplay do iOS sem quebrar o fluxo
-          console.warn('Alerta no video.play():', playErr);
-          resolve();
-        });
+      // Monitoramento de eventos do elemento de vídeo para telemetria em tempo real
+      const monitorEvents = ['loadedmetadata', 'loadeddata', 'canplay', 'playing', 'pause', 'suspend', 'ended', 'error'];
+      monitorEvents.forEach((evName) => {
+        video.addEventListener(evName, () => logVideoEvent(evName), { once: false });
       });
 
-      if (requestId !== activeRequestIdRef.current) {
+      // Padrão 5.5: Recuperação de track morta (R10)
+      const primaryTrack = stream.getVideoTracks()[0];
+      if (primaryTrack) {
+        primaryTrack.onended = () => {
+          logVideoEvent('track_ended');
+          if (!isCancelledRef.current) {
+            // Tenta reiniciar se a track foi encerrada pelo sistema
+            start();
+          }
+        };
+      }
+
+      video.srcObject = stream;
+
+      transitionState('waitingVideo');
+
+      // Tenta reproduzir vídeo e captura qualquer erro sem quebrar
+      await video.play().catch((playErr) => {
+        logVideoEvent(`play_catch: ${playErr.name || playErr.message}`);
+      });
+
+      if (isCancelledRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
         return;
       }
 
-      // Registra dados no debug
-      const track = stream.getVideoTracks()[0];
-      const settings = track ? track.getSettings() : undefined;
-      setDebugInfo((prev) => ({
-        ...prev,
-        trackSettings: settings,
-        videoReadyState: video.readyState,
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight,
-        facingMode
-      }));
+      // Padrão 5.2: Espera explícita com timeout seguro de 8s e listeners síncronos
+      await waitForVideoReady(video, logVideoEvent, 8000);
 
-      setIsStarting(false);
-      setIsScanning(true);
+      if (isCancelledRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
 
-      // Inicia loop de detecção estável via setInterval
+      transitionState('scanning');
+
+      // Inicia loop de leitura de frames com intervalo estável
       scanIntervalRef.current = setInterval(processFrame, throttleMs);
     } catch (err: any) {
-      if (requestId !== activeRequestIdRef.current) return;
+      if (isCancelledRef.current) return;
       console.warn('Erro ao abrir câmera:', err);
-      setIsStarting(false);
+
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+        activeStreamRef.current = null;
+      }
+
+      setDebugInfo((prev) => ({
+        ...prev,
+        lastGUMError: { name: err.name || 'Error', message: err.message || 'Desconhecido' },
+        videoError: videoRef.current?.error ? String(videoRef.current.error.code) : null
+      }));
+
+      transitionState('error');
 
       let msg = 'Não foi possível iniciar a câmera. Use "Foto da Galeria" ou cole o link abaixo.';
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        msg = 'Permissão de câmera negada. Permita o acesso nas configurações do Safari/Chrome.';
+        msg = 'Permissão de câmera negada. Permita o acesso em Ajustes > Safari > Câmera.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         msg = 'Nenhuma câmera compatível foi encontrada no dispositivo.';
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        msg = 'A câmera está sendo usada por outro aplicativo ou aba do navegador.';
+        msg = 'A câmera está ocupada por outro app ou aba. Feche outros apps com câmera e tente novamente.';
+      } else if (err.name === 'OverconstrainedError') {
+        msg = 'As configurações de resolução não são suportadas por esta câmera.';
       }
 
       setCameraError(msg);
       onError?.(msg);
     }
-  }, [facingMode, stop, processFrame, throttleMs, onError]);
+  }, [facingMode, stop, processFrame, throttleMs, onError, transitionState, logVideoEvent]);
 
   // 6. Trocar entre câmera traseira e frontal
   const switchCamera = useCallback(() => {
@@ -463,7 +564,6 @@ export function useQrScanner({
         img.onload = async () => {
           URL.revokeObjectURL(objectUrl);
 
-          // Escala inteligente para fotos grandes (12-48MP)
           const origW = img.naturalWidth || img.width;
           const origH = img.naturalHeight || img.height;
           const maxDim = 1200;
@@ -483,7 +583,6 @@ export function useQrScanner({
 
           ctx.drawImage(img, 0, 0, targetW, targetH);
 
-          // 1. Tentar BarcodeDetector se disponível
           if (barcodeDetectorRef.current) {
             try {
               const barcodes = await barcodeDetectorRef.current.detect(canvas);
@@ -494,7 +593,6 @@ export function useQrScanner({
             } catch {}
           }
 
-          // 2. Tentar jsQR com inversão dupla
           const imgData = ctx.getImageData(0, 0, targetW, targetH);
           const qr = jsQR(imgData.data, targetW, targetH, {
             inversionAttempts: 'attemptBoth'
@@ -520,7 +618,25 @@ export function useQrScanner({
     }
   }, []);
 
-  // Cleanup automático no unmount
+  // Recuperação quando a página volta do segundo plano (Padrão 5.5)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && scannerState === 'scanning') {
+        const video = videoRef.current;
+        if (video && (video.paused || video.readyState < 2)) {
+          logVideoEvent('visibility_resume');
+          video.play().catch(() => {});
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [scannerState, logVideoEvent]);
+
+  // Cleanup automático ao desmontar
   useEffect(() => {
     return () => {
       stop();
@@ -529,8 +645,9 @@ export function useQrScanner({
 
   return {
     videoRef,
-    isStarting,
-    isScanning,
+    scannerState,
+    isStarting: scannerState === 'requesting' || scannerState === 'waitingVideo',
+    isScanning: scannerState === 'scanning',
     cameraError,
     scannedCode,
     debugInfo,
