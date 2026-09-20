@@ -177,7 +177,33 @@ export function useQrScanner({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scannedCode, setScannedCode] = useState<string | null>(null);
 
-  const [debugInfo, setDebugInfo] = useState<QrScannerDebugInfo>({
+  // Invariante F: Espelhamento de callbacks e opções em refs para estabilidade referencial absoluta
+  const onScanSuccessRef = useRef(onScanSuccess);
+  onScanSuccessRef.current = onScanSuccess;
+
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+
+  const throttleMsRef = useRef(throttleMs);
+  throttleMsRef.current = throttleMs;
+
+  const dedupeDelayMsRef = useRef(dedupeDelayMs);
+  dedupeDelayMsRef.current = dedupeDelayMs;
+
+  const facingModeRef = useRef(facingMode);
+  facingModeRef.current = facingMode;
+
+  // Invariante A, C, D e G: Ciclo de vida estrito e guards
+  const activeRequestIdRef = useRef<number>(0);
+  const isStartingRef = useRef<boolean>(false);
+  const isCancelledRef = useRef<boolean>(false);
+  const isIntentionalStopRef = useRef<boolean>(true);
+  const retryCountRef = useRef<number>(0);
+  const lastRecoveryTimeRef = useRef<number>(0);
+  const scannerStateRef = useRef<ScannerState>('idle');
+
+  // Invariante E: Telemetria barata em modelo pull (refs mutáveis + zero setState durante loop)
+  const telemetryRef = useRef<QrScannerDebugInfo>({
     state: 'idle',
     stateTransitions: [{ state: 'idle', timestamp: new Date().toLocaleTimeString() }],
     engine: 'Nenhum',
@@ -194,36 +220,61 @@ export function useQrScanner({
     facingMode: initialFacingMode
   });
 
+  const [debugInfo, setDebugInfo] = useState<QrScannerDebugInfo>(telemetryRef.current);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scanIntervalRef = useRef<any>(null);
   const isProcessingFrameRef = useRef<boolean>(false);
   const barcodeDetectorRef = useRef<any>(null);
   const activeStreamRef = useRef<MediaStream | null>(null);
-  const isCancelledRef = useRef<boolean>(false);
 
   // FPS e deduplicação
   const frameCountRef = useRef<number>(0);
   const fpsTimerRef = useRef<number>(Date.now());
   const lastDetectedRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
 
-  // Helper para atualizar estados e registrar transições no debug
-  const transitionState = useCallback((newState: ScannerState) => {
-    setScannerState(newState);
-    const now = new Date().toLocaleTimeString();
-    setDebugInfo((prev) => ({
-      ...prev,
-      state: newState,
-      stateTransitions: [...prev.stateTransitions.slice(-4), { state: newState, timestamp: now }]
-    }));
-  }, []);
-
+  // Invariante E: logVideoEvent atualiza ref sem disparar setState
   const logVideoEvent = useCallback((event: string) => {
     const now = new Date().toLocaleTimeString();
-    setDebugInfo((prev) => ({
-      ...prev,
-      videoEvents: [...prev.videoEvents.slice(-5), { event, time: now }]
-    }));
+    telemetryRef.current.videoEvents = [
+      ...telemetryRef.current.videoEvents.slice(-5),
+      { event, time: now }
+    ];
+  }, []);
+
+  // Invariante G: transição de estado monotônica com atualização única
+  const transitionState = useCallback((newState: ScannerState) => {
+    if (scannerStateRef.current === newState) return;
+    scannerStateRef.current = newState;
+    setScannerState(newState);
+
+    const now = new Date().toLocaleTimeString();
+    telemetryRef.current.state = newState;
+    telemetryRef.current.stateTransitions = [
+      ...telemetryRef.current.stateTransitions.slice(-4),
+      { state: newState, timestamp: now }
+    ];
+  }, []);
+
+  // Invariante E: Polling único a cada 500ms para transferir telemetria para o estado de exibição
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (video) {
+        telemetryRef.current.videoReadyState = video.readyState;
+        telemetryRef.current.videoReadyStateLabel = readyStateToLabel(video.readyState);
+        telemetryRef.current.videoWidth = video.videoWidth;
+        telemetryRef.current.videoHeight = video.videoHeight;
+        if (video.error) {
+          telemetryRef.current.videoError = String(video.error.code);
+        }
+      }
+      telemetryRef.current.facingMode = facingModeRef.current;
+      setDebugInfo({ ...telemetryRef.current });
+    }, 500);
+
+    return () => clearInterval(interval);
   }, []);
 
   // 1. Inicializar detecção de motor (Nativo vs jsQR)
@@ -236,14 +287,14 @@ export function useQrScanner({
           barcodeDetectorRef.current = new (window as any).BarcodeDetector({
             formats: ['qr_code']
           });
-          setDebugInfo((prev) => ({ ...prev, engine: 'BarcodeDetector (Nativo)' }));
+          telemetryRef.current.engine = 'BarcodeDetector (Nativo)';
         } catch {
           barcodeDetectorRef.current = null;
-          setDebugInfo((prev) => ({ ...prev, engine: 'jsQR (Fallback CPU)' }));
+          telemetryRef.current.engine = 'jsQR (Fallback CPU)';
         }
       } else {
         barcodeDetectorRef.current = null;
-        setDebugInfo((prev) => ({ ...prev, engine: 'jsQR (Fallback CPU)' }));
+        telemetryRef.current.engine = 'jsQR (Fallback CPU)';
       }
     });
     return () => {
@@ -251,9 +302,13 @@ export function useQrScanner({
     };
   }, []);
 
-  // 2. Parar câmera e liberar tracks
+  // 2. Parar câmera e liberar tracks (Invariante A & F: deps [])
   const stop = useCallback(() => {
+    console.count('scanner:cleanup');
     isCancelledRef.current = true;
+    isIntentionalStopRef.current = true;
+    isStartingRef.current = false;
+
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
@@ -276,57 +331,46 @@ export function useQrScanner({
     transitionState('idle');
   }, [transitionState]);
 
-  // 3. Processar resultado de leitura com deduplicação
-  const handleDetected = useCallback(
-    (text: string) => {
-      const clean = text.trim();
-      if (!clean) return;
+  // 3. Processar resultado de leitura com deduplicação (Invariante F: deps [])
+  const handleDetected = useCallback((text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
 
-      const now = Date.now();
-      if (lastDetectedRef.current.text === clean && now - lastDetectedRef.current.time < dedupeDelayMs) {
-        return;
-      }
+    const now = Date.now();
+    if (lastDetectedRef.current.text === clean && now - lastDetectedRef.current.time < dedupeDelayMsRef.current) {
+      return;
+    }
 
-      lastDetectedRef.current = { text: clean, time: now };
-      setScannedCode(clean);
-      setDebugInfo((prev) => ({ ...prev, lastResult: clean }));
+    lastDetectedRef.current = { text: clean, time: now };
+    setScannedCode(clean);
+    telemetryRef.current.lastResult = clean;
 
-      playBeepSound();
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        try {
-          navigator.vibrate(100);
-        } catch {}
-      }
+    playBeepSound();
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate(100);
+      } catch {}
+    }
 
-      onScanSuccess(clean);
-    },
-    [dedupeDelayMs, onScanSuccess]
-  );
+    onScanSuccessRef.current(clean);
+  }, []);
 
-  // 4. Processamento contínuo de frame
+  // 4. Processamento contínuo de frame (Invariante F: deps estáveis)
   const processFrame = useCallback(async () => {
     if (isProcessingFrameRef.current) return;
     const video = videoRef.current;
     if (!video) return;
 
-    // Atualiza FPS e estatísticas a cada 1s
+    // Atualiza contador de frames para telemetria pull
     frameCountRef.current++;
     const now = Date.now();
     if (now - fpsTimerRef.current >= 1000) {
-      const currentFps = frameCountRef.current;
+      telemetryRef.current.fps = frameCountRef.current;
       frameCountRef.current = 0;
       fpsTimerRef.current = now;
-      setDebugInfo((prev) => ({
-        ...prev,
-        fps: currentFps,
-        videoReadyState: video.readyState,
-        videoReadyStateLabel: readyStateToLabel(video.readyState),
-        videoWidth: video.videoWidth,
-        videoHeight: video.videoHeight
-      }));
     }
 
-    // Validação estrita para iOS: precisa de readyState >= 2 e resolução real > 0
+    // Invariante A/B: Validação estrita para iOS: precisa de readyState >= 2 e resolução real > 0
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0 || video.videoHeight === 0) {
       return;
     }
@@ -343,7 +387,6 @@ export function useQrScanner({
           const barcodes = await barcodeDetectorRef.current.detect(video);
           if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
             handleDetected(barcodes[0].rawValue);
-            isProcessingFrameRef.current = false;
             return;
           }
         } catch {
@@ -379,7 +422,6 @@ export function useQrScanner({
 
         if (qr && qr.data) {
           handleDetected(qr.data);
-          isProcessingFrameRef.current = false;
           return;
         }
 
@@ -402,7 +444,6 @@ export function useQrScanner({
 
         if (qr && qr.data) {
           handleDetected(qr.data);
-          isProcessingFrameRef.current = false;
           return;
         }
       }
@@ -411,27 +452,56 @@ export function useQrScanner({
     }
   }, [handleDetected]);
 
-  // 5. Iniciar Câmera (Padrões Canônicos 5.1, 5.2, 5.3 e 5.4)
+  // 5. Iniciar Câmera (Invariantes A, B, C, F e G)
   const start = useCallback(async () => {
-    stop();
+    // Invariante A: Bloqueia inits simultâneos concorrentes
+    if (isStartingRef.current) {
+      return;
+    }
+    // Se já estiver escaneando com stream ativa e válida, não reinicia
+    if (scannerStateRef.current === 'scanning' && activeStreamRef.current && activeStreamRef.current.active) {
+      return;
+    }
+
+    console.count('scanner:init');
+    isStartingRef.current = true;
     isCancelledRef.current = false;
+    isIntentionalStopRef.current = false;
+    retryCountRef.current = 0;
+
+    const requestId = ++activeRequestIdRef.current;
+
+    // Limpa streams anteriores com segurança
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach((t) => {
+        try { t.stop(); } catch {}
+      });
+      activeStreamRef.current = null;
+    }
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+
     setCameraError(null);
     setScannedCode(null);
 
     // Validação de contexto seguro
     if (typeof window !== 'undefined' && !window.isSecureContext) {
+      isStartingRef.current = false;
       const err = 'O acesso à câmera exige conexão segura (HTTPS). Acesse via HTTPS para escanear.';
       setCameraError(err);
       transitionState('error');
-      onError?.(err);
+      onErrorRef.current?.(err);
       return;
     }
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      isStartingRef.current = false;
       const err = 'Este navegador não suporta acesso à câmera.';
       setCameraError(err);
       transitionState('error');
-      onError?.(err);
+      onErrorRef.current?.(err);
       return;
     }
 
@@ -442,7 +512,7 @@ export function useQrScanner({
       // Padrão 5.1: Constraints brandas (sem exact, sem advanced focusMode)
       const constraints: MediaStreamConstraints = {
         video: {
-          facingMode: { ideal: facingMode },
+          facingMode: { ideal: facingModeRef.current },
           width: { ideal: 1280 },
           height: { ideal: 720 }
         },
@@ -451,8 +521,8 @@ export function useQrScanner({
 
       stream = await navigator.mediaDevices.getUserMedia(constraints);
 
-      // Padrão 5.3: StrictMode guard contra montagens concorrentes
-      if (isCancelledRef.current) {
+      // Invariante C: Guard pós-await getUserMedia
+      if (requestId !== activeRequestIdRef.current || isCancelledRef.current) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
@@ -472,25 +542,27 @@ export function useQrScanner({
       video.muted = true;
       video.autoplay = true;
 
-      // Monitoramento de eventos do elemento de vídeo para telemetria em tempo real
-      const monitorEvents = ['loadedmetadata', 'loadeddata', 'canplay', 'playing', 'pause', 'suspend', 'ended', 'error'];
-      monitorEvents.forEach((evName) => {
-        video.addEventListener(evName, () => logVideoEvent(evName), { once: false });
-      });
-
-      // Padrão 5.5: Recuperação de track morta (R10)
+      // Invariante D: Monitoramento com guarda
       const primaryTrack = stream.getVideoTracks()[0];
       if (primaryTrack) {
         primaryTrack.onended = () => {
           logVideoEvent('track_ended');
-          if (!isCancelledRef.current) {
-            // Tenta reiniciar se a track foi encerrada pelo sistema
-            start();
+          if (!isCancelledRef.current && !isIntentionalStopRef.current && retryCountRef.current < 1) {
+            retryCountRef.current += 1;
+            setTimeout(() => {
+              if (!isCancelledRef.current && !isIntentionalStopRef.current) {
+                start();
+              }
+            }, 1500);
           }
         };
       }
 
-      video.srcObject = stream;
+      // Invariante B: srcObject atribuído no máximo 1x por montagem (nunca chamar load())
+      if (video.srcObject !== stream) {
+        console.log('[scanner:setSrcObject]', { videoId: video.id || 'no-id', streamId: stream.id });
+        video.srcObject = stream;
+      }
 
       transitionState('waitingVideo');
 
@@ -499,7 +571,8 @@ export function useQrScanner({
         logVideoEvent(`play_catch: ${playErr.name || playErr.message}`);
       });
 
-      if (isCancelledRef.current) {
+      // Invariante C: Guard pós-await play()
+      if (requestId !== activeRequestIdRef.current || isCancelledRef.current) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
@@ -507,17 +580,19 @@ export function useQrScanner({
       // Padrão 5.2: Espera explícita com timeout seguro de 8s e listeners síncronos
       await waitForVideoReady(video, logVideoEvent, 8000);
 
-      if (isCancelledRef.current) {
+      // Invariante C: Guard pós-await waitForVideoReady
+      if (requestId !== activeRequestIdRef.current || isCancelledRef.current) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
 
       transitionState('scanning');
+      isStartingRef.current = false;
 
       // Inicia loop de leitura de frames com intervalo estável
-      scanIntervalRef.current = setInterval(processFrame, throttleMs);
+      scanIntervalRef.current = setInterval(processFrame, throttleMsRef.current);
     } catch (err: any) {
-      if (isCancelledRef.current) return;
+      if (requestId !== activeRequestIdRef.current || isCancelledRef.current) return;
       console.warn('Erro ao abrir câmera:', err);
 
       if (stream) {
@@ -525,11 +600,10 @@ export function useQrScanner({
         activeStreamRef.current = null;
       }
 
-      setDebugInfo((prev) => ({
-        ...prev,
-        lastGUMError: { name: err.name || 'Error', message: err.message || 'Desconhecido' },
-        videoError: videoRef.current?.error ? String(videoRef.current.error.code) : null
-      }));
+      telemetryRef.current.lastGUMError = {
+        name: err.name || 'Error',
+        message: err.message || 'Desconhecido'
+      };
 
       transitionState('error');
 
@@ -545,16 +619,24 @@ export function useQrScanner({
       }
 
       setCameraError(msg);
-      onError?.(msg);
+      onErrorRef.current?.(msg);
+    } finally {
+      if (requestId === activeRequestIdRef.current) {
+        isStartingRef.current = false;
+      }
     }
-  }, [facingMode, stop, processFrame, throttleMs, onError, transitionState, logVideoEvent]);
+  }, [transitionState, logVideoEvent, processFrame]);
 
-  // 6. Trocar entre câmera traseira e frontal
+  // 6. Trocar entre câmera traseira e frontal (Invariante F: deps [])
   const switchCamera = useCallback(() => {
-    setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
+    setFacingMode((prev) => {
+      const next = prev === 'environment' ? 'user' : 'environment';
+      facingModeRef.current = next;
+      return next;
+    });
   }, []);
 
-  // 7. Decodificação estática a partir de arquivo de foto (galeria)
+  // 7. Decodificação estática a partir de arquivo de foto (galeria) (Invariante F: deps [])
   const scanImageFile = useCallback(async (file: File): Promise<string | null> => {
     try {
       const img = new Image();
@@ -618,12 +700,22 @@ export function useQrScanner({
     }
   }, []);
 
-  // Recuperação quando a página volta do segundo plano (Padrão 5.5)
+  // Invariante D: Recuperação com guarda contra cleanup e debounce >= 1s
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && scannerState === 'scanning') {
+      if (document.visibilityState !== 'visible') return;
+      if (isIntentionalStopRef.current || isCancelledRef.current) return;
+
+      const now = Date.now();
+      if (now - lastRecoveryTimeRef.current < 1000 || retryCountRef.current >= 1) {
+        return;
+      }
+
+      if (scannerStateRef.current === 'scanning') {
         const video = videoRef.current;
         if (video && (video.paused || video.readyState < 2)) {
+          lastRecoveryTimeRef.current = now;
+          retryCountRef.current += 1;
           logVideoEvent('visibility_resume');
           video.play().catch(() => {});
         }
@@ -634,7 +726,7 @@ export function useQrScanner({
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [scannerState, logVideoEvent]);
+  }, [logVideoEvent]);
 
   // Cleanup automático ao desmontar
   useEffect(() => {
