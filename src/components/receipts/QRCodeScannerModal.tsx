@@ -150,14 +150,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           {/* Elemento de Vídeo SEMPRE no DOM e visível (Padrão 5.4) */}
           <video
             id="qr-video-element"
-            ref={(el) => {
-              if (el && !videoRef.current) {
-                console.log('[scanner:videoElement:mounted]', el.id);
-              } else if (!el && videoRef.current) {
-                console.log('[scanner:videoElement:unmounted]');
-              }
-              videoRef.current = el;
-            }}
+            ref={videoRef}
             playsInline
             muted
             autoPlay

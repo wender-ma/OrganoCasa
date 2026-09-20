@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   CheckCircle2,
   AlertTriangle,
@@ -14,13 +14,19 @@ import {
   Plus,
   Save,
   ExternalLink,
-  KeyRound
+  KeyRound,
+  Clipboard,
+  Camera,
+  Check,
+  Loader2
 } from 'lucide-react';
-import { ReconciliationItem, ProductCategory, ProductUnit } from '../../types';
-import { ParsedReceiptData, guessCategoryFromName } from '../../services/receiptParser';
+import { ReconciliationItem, ProductCategory, ProductUnit, ShoppingListItem } from '../../types';
+import { ParsedReceiptData, guessCategoryFromName, parseReceiptTextHeuristics } from '../../services/receiptParser';
+import { extractReceiptFromMultipleImages } from '../../services/aiReceiptExtractor';
 import { PostPurchaseAlertModal } from '../shopping/PostPurchaseAlertModal';
 import { sendLocalNotification } from '../../services/notifications';
 import { useReminders } from '../../hooks/useReminders';
+import { useReceipts } from '../../hooks/useReceipts';
 
 const CATEGORIES: ProductCategory[] = [
   'Hortifrúti',
@@ -40,6 +46,7 @@ interface ReconciliationModalProps {
   isOpen: boolean;
   receiptData: ParsedReceiptData | null;
   items: ReconciliationItem[];
+  listItems?: ShoppingListItem[];
   onClose: () => void;
   onConfirm: (
     receiptData: ParsedReceiptData,
@@ -51,6 +58,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   isOpen,
   receiptData,
   items: initialItems,
+  listItems = [],
   onClose,
   onConfirm
 }) => {
@@ -68,7 +76,19 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   const [editPrice, setEditPrice] = useState('');
   const [editCategory, setEditCategory] = useState<ProductCategory>('Mercearia');
 
+  // Paste SEFAZ Table Modal / Drawer state
+  const [isPasteDrawerOpen, setIsPasteDrawerOpen] = useState(false);
+  const [pastedSefazText, setPastedSefazText] = useState('');
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [copiedKeySuccess, setCopiedKeySuccess] = useState(false);
+
+  // Photo / AI Extraction in Reconciliation
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+  const [photoStatus, setPhotoStatus] = useState('');
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+
   const { addReminder } = useReminders();
+  const { generateReconciliation } = useReceipts();
 
   // Reset items only when modal is opened with new receipt data
   React.useEffect(() => {
@@ -170,6 +190,75 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
     }
   };
 
+  // Copy Key and Open Official SEFAZ Portal
+  const handleCopyKeyAndOpenSefaz = () => {
+    if (receiptData?.accessKey) {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(receiptData.accessKey).catch(() => {});
+        setCopiedKeySuccess(true);
+        setTimeout(() => setCopiedKeySuccess(false), 3000);
+      }
+    }
+    if (receiptData?.sefazPortalUrl) {
+      window.open(receiptData.sefazPortalUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  // Import parsed items from pasted text/table
+  const handleImportPastedTable = async () => {
+    if (!pastedSefazText.trim()) return;
+    setPasteError(null);
+    try {
+      const parsed = parseReceiptTextHeuristics(pastedSefazText);
+      if (parsed.items.length === 0) {
+        setPasteError('Nenhum produto identificado no texto colado. Verifique se copiou as linhas com produtos da SEFAZ.');
+        return;
+      }
+
+      if (parsed.totalAmount > 0 && receiptData) {
+        receiptData.totalAmount = parsed.totalAmount;
+      }
+
+      const generated = await generateReconciliation(parsed.items, listItems);
+      setItems(generated);
+      setIsPasteDrawerOpen(false);
+      setPastedSefazText('');
+    } catch (err: any) {
+      setPasteError(err.message || 'Erro ao processar texto.');
+    }
+  };
+
+  // Photo / Camera Recognition via AI
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsProcessingPhoto(true);
+    setPhotoStatus('Analisando foto(s) do cupom com IA...');
+    try {
+      const parsed = await extractReceiptFromMultipleImages(Array.from(files), (_prog, status) => {
+        setPhotoStatus(status);
+      });
+
+      if (parsed.items.length > 0) {
+        if (parsed.totalAmount > 0 && receiptData) {
+          receiptData.totalAmount = parsed.totalAmount;
+        }
+        const generated = await generateReconciliation(parsed.items, listItems);
+        setItems(generated);
+      } else {
+        alert('Não foi possível reconhecer os itens na foto. Verifique a iluminação ou cole a tabela da SEFAZ.');
+      }
+    } catch (err: any) {
+      console.warn('Erro ao processar foto:', err);
+      alert(err.message || 'Não foi possível ler os itens da foto.');
+    } finally {
+      setIsProcessingPhoto(false);
+      setPhotoStatus('');
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  };
+
   const handleFinalConfirm = async () => {
     setIsApplying(true);
     try {
@@ -266,27 +355,126 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
           <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-6">
             {/* SEFAZ Portal / Chave de Acesso Alert Banner */}
             {receiptData.sefazPortalUrl && (
-              <div className="p-3.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl text-xs space-y-2">
+              <div className="p-4 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl text-xs space-y-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 text-xs">
-                      <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+                      <KeyRound className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                       <span>Nota Identificada via Chave de Acesso</span>
                     </span>
                     <p className="text-[11px] text-indigo-700 dark:text-indigo-400 leading-relaxed">
-                      {receiptData.note || 'A SEFAZ exige validação humana (captcha) para exibir os produtos. Você pode abrir a consulta oficial para conferir ou acrescentar os itens aqui pelo botão ao lado:'}
+                      {receiptData.note ||
+                        'O portal da SEFAZ exige validação de captcha para exibir os produtos. Escolha abaixo como carregar os itens desta compra:'}
                     </p>
                   </div>
-                  <a
-                    href={receiptData.sefazPortalUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold shrink-0 inline-flex items-center gap-1 shadow-xs transition-colors"
+                  <button
+                    type="button"
+                    onClick={handleCopyKeyAndOpenSefaz}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold shrink-0 inline-flex items-center gap-1.5 shadow-xs transition-colors"
+                    title="Copia a chave e abre o portal da Fazenda"
                   >
-                    <span>Abrir SEFAZ</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+                    {copiedKeySuccess ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-300" />
+                        <span>Chave Copiada!</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Abrir SEFAZ</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </>
+                    )}
+                  </button>
                 </div>
+
+                {/* Direct Action Buttons for Item Import */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-indigo-100 dark:border-indigo-900/60">
+                  <button
+                    type="button"
+                    onClick={() => setIsPasteDrawerOpen((prev) => !prev)}
+                    className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+                  >
+                    <Clipboard className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>{isPasteDrawerOpen ? 'Fechar Colagem' : '📋 Colar Tabela da SEFAZ'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isProcessingPhoto}
+                    onClick={() => photoInputRef.current?.click()}
+                    className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-xs disabled:opacity-50"
+                  >
+                    {isProcessingPhoto ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                        <span>{photoStatus || 'Lendo Foto...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>📷 Foto do Cupom (IA)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Collapsible / Inline Paste Box */}
+                {isPasteDrawerOpen && (
+                  <div className="space-y-2 pt-2 border-t border-indigo-200 dark:border-indigo-800 animate-in slide-in-from-top-2 duration-150">
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold">Cole o texto ou tabela copiada da SEFAZ:</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            if (navigator.clipboard?.readText) {
+                              const text = await navigator.clipboard.readText();
+                              setPastedSefazText(text);
+                            }
+                          } catch {}
+                        }}
+                        className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 font-medium"
+                      >
+                        <Clipboard className="w-3 h-3" />
+                        <span>Colar da Área de Transferência</span>
+                      </button>
+                    </div>
+
+                    <textarea
+                      rows={4}
+                      value={pastedSefazText}
+                      onChange={(e) => setPastedSefazText(e.target.value)}
+                      placeholder="Ex: SODA ANTARC LT (Código: 261688 ) Qtde.: 2 UN: un Vl. Unit.: 3,39 Vl. Total 6,78&#10;MANTA VELOUR CASAL T Qtde.: 1 UN: un Vl. Unit.: 59,99 Vl. Total 59,99..."
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
+                    />
+
+                    {pasteError && (
+                      <p className="text-[11px] text-rose-600 dark:text-rose-400">{pasteError}</p>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPasteDrawerOpen(false);
+                          setPasteError(null);
+                        }}
+                        className="px-3 py-1.5 text-slate-500 hover:text-slate-700 text-xs font-semibold"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleImportPastedTable}
+                        disabled={!pastedSefazText.trim()}
+                        className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center gap-1"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Importar Produtos</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -624,6 +812,17 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Hidden File Input for Paper Receipt Photo */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        multiple
+        onChange={handlePhotoUpload}
+        className="hidden"
+      />
 
       {/* Post-Purchase Alert Modal */}
       <PostPurchaseAlertModal

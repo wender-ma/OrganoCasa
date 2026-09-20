@@ -11,6 +11,7 @@ export interface ParsedReceiptData {
   items: ReceiptItem[];
   sefazPortalUrl?: string;
   note?: string;
+  requiresManualItems?: boolean;
 }
 
 /**
@@ -276,16 +277,8 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
             rawType: 'qr_code',
             sefazPortalUrl: sefazJson.sefazPortalUrl,
             note: sefazJson.note || 'Nota fiscal identificada pela chave de acesso.',
-            items: [
-              {
-                id: `chave-item-1-${Date.now()}`,
-                name: `COMPRA ${sefazJson.storeName.toUpperCase()}`,
-                quantity: 1,
-                unitPrice: totalAmount > 0 ? totalAmount : 0,
-                totalPrice: totalAmount > 0 ? totalAmount : 0,
-                unit: 'un'
-              }
-            ]
+            requiresManualItems: true,
+            items: []
           };
         } else {
           console.warn('[QR:SEFAZ] SEFAZ respondeu, mas sem itens parseados:', sefazJson);
@@ -299,28 +292,47 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
     }
   }
 
-  // 5. Fallback local com os dados estruturados do QR Code caso a SEFAZ esteja inacessível
+  // 5. Fallback local com os dados estruturados caso a SEFAZ esteja inacessível
   if (meta.cnpj) {
     storeName = `Supermercado (${meta.stateName || 'NFC-e'} - ${meta.cnpj})`;
   }
 
-  const items: ReceiptItem[] = [
-    {
-      id: `qr-item-1-${Date.now()}`,
-      name: `COMPRA ${storeName.toUpperCase()}`,
-      quantity: 1,
-      unitPrice: totalAmount > 0 ? totalAmount : 48.90,
-      totalPrice: totalAmount > 0 ? totalAmount : 48.90,
-      unit: 'un'
-    }
-  ];
+  if (!meta.rawUrl || (accessKey && accessKey.length === 44 && !meta.rawUrl)) {
+    return {
+      storeName,
+      accessKey,
+      totalAmount: totalAmount > 0 ? Number(totalAmount.toFixed(2)) : 0,
+      purchaseDate,
+      rawType: 'qr_code',
+      sefazPortalUrl: accessKey?.startsWith('52')
+        ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
+        : 'https://www.fazenda.sp.gov.br/nfce/consulta',
+      note: 'Nota identificada pela chave de 44 dígitos.',
+      requiresManualItems: true,
+      items: []
+    };
+  }
+
+  const items: ReceiptItem[] = totalAmount > 0
+    ? [
+        {
+          id: `qr-item-1-${Date.now()}`,
+          name: `COMPRA ${storeName.toUpperCase()}`,
+          quantity: 1,
+          unitPrice: totalAmount,
+          totalPrice: totalAmount,
+          unit: 'un'
+        }
+      ]
+    : [];
 
   return {
     storeName,
     accessKey,
-    totalAmount: totalAmount > 0 ? Number(totalAmount.toFixed(2)) : 48.90,
+    totalAmount: totalAmount > 0 ? Number(totalAmount.toFixed(2)) : 0,
     purchaseDate,
     rawType: 'qr_code',
+    requiresManualItems: items.length === 0,
     items
   };
 }
@@ -409,6 +421,70 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
 
     if (ignoredWordsRegex.test(line)) {
       continue;
+    }
+
+    // Pattern S: SEFAZ NFC-e Danfe format (e.g. Goiás, SP, RS text copies)
+    // e.g. "SODA ANTARC LT (Código: 261688 ) Qtde.: 2 UN: un Vl. Unit.:   3,39 Vl. Total 6,78"
+    const sefazPattern = /^(.+?)(?:\s*\([Cc][óo]digo:[^)]*\))?\s+Qtde\.?:\s*([0-9\.,]+)\s+UN:\s*([a-zA-Z]+)\s+Vl\.\s*Unit\.?:\s*(?:&nbsp;)?\s*([0-9\.,]+)\s+Vl\.\s*Total\s*([0-9\.,]+)/i;
+    const matchSefaz = line.match(sefazPattern);
+    if (matchSefaz) {
+      const name = matchSefaz[1].replace(/^\d+\s+/, '').trim().toUpperCase();
+      const qty = parseFloat(matchSefaz[2].replace(',', '.')) || 1;
+      const unit = (matchSefaz[3] || 'un').toLowerCase();
+      const unitPrice = parseFloat(matchSefaz[4].replace(',', '.')) || 0;
+      const totalPrice = parseFloat(matchSefaz[5].replace(',', '.')) || Number((qty * unitPrice).toFixed(2));
+
+      if (name.length >= 2 && (totalPrice > 0 || unitPrice > 0)) {
+        items.push({
+          id: `sefaz-${i}-${Date.now()}`,
+          name,
+          quantity: qty,
+          unitPrice: unitPrice > 0 ? unitPrice : (totalPrice > 0 ? Number((totalPrice / qty).toFixed(2)) : 0),
+          totalPrice: totalPrice > 0 ? totalPrice : Number((qty * unitPrice).toFixed(2)),
+          unit
+        });
+        continue;
+      }
+    }
+
+    // Pattern Tab: Table row copied from browser with tabs (\t)
+    // e.g. "1 \t ARROZ TIO JOAO \t 2 \t UN \t 29,90 \t 59,80" or "ARROZ TIO JOAO \t 2 \t UN \t 29,90 \t 59,80"
+    if (line.includes('\t')) {
+      const parts = line.split('\t').map((p) => p.trim()).filter(Boolean);
+      if (parts.length >= 4) {
+        let name = parts[0];
+        let rest = parts.slice(1);
+        if (/^\d+$/.test(name) && rest.length >= 4) {
+          name = rest[0];
+          rest = rest.slice(1);
+        }
+        const numCandidates = rest
+          .map((c) => ({
+            raw: c,
+            num: parseFloat(c.replace(/[^\d,\.]/g, '').replace(',', '.'))
+          }))
+          .filter((c) => !isNaN(c.num));
+
+        if (numCandidates.length >= 2 && name.length >= 2 && !ignoredWordsRegex.test(name)) {
+          const qty = numCandidates[0].num > 0 && numCandidates[0].num < 1000 ? numCandidates[0].num : 1;
+          const unitCandidate = rest.find((r) => /^[a-zA-Z]{1,4}$/.test(r)) || 'un';
+          const lastNum = numCandidates[numCandidates.length - 1].num;
+          const secondLastNum = numCandidates.length >= 3 ? numCandidates[numCandidates.length - 2].num : 0;
+
+          const totalPrice = lastNum > 0 ? lastNum : 0;
+          const unitPrice = secondLastNum > 0 ? secondLastNum : (totalPrice > 0 && qty > 0 ? Number((totalPrice / qty).toFixed(2)) : 0);
+
+          items.push({
+            id: `tab-${i}-${Date.now()}`,
+            name: name.replace(/^\d+\s+/, '').trim().toUpperCase(),
+            quantity: qty,
+            unitPrice,
+            totalPrice: totalPrice || Number((qty * unitPrice).toFixed(2)),
+            unit: unitCandidate.toLowerCase()
+          });
+          continue;
+        }
+      }
     }
 
     // Pattern A: Single line with quantity, unit and price

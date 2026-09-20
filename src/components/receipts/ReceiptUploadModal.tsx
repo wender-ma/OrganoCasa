@@ -127,6 +127,16 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
     } catch {}
   }, [handleKeyInputChange]);
 
+  const handleOpenSefazWithCopiedKey = useCallback(() => {
+    const cleanKey = accessKeyInput.replace(/\D/g, '');
+    if (cleanKey.length === 44 && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(cleanKey).catch(() => {});
+      setCopiedKeySuccess(true);
+      setTimeout(() => setCopiedKeySuccess(false), 2500);
+    }
+    window.open('https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa', '_blank', 'noopener,noreferrer');
+  }, [accessKeyInput]);
+
   const handleSubmitKey = useCallback(() => {
     const cleanKey = accessKeyInput.replace(/\D/g, '');
     if (cleanKey.length === 44) {
@@ -632,15 +642,15 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
 
                       <div className="flex items-center justify-between pt-1 text-[11px]">
                         <span className="text-slate-400">Portal oficial da Fazenda:</span>
-                        <a
-                          href="https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa"
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={handleOpenSefazWithCopiedKey}
                           className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
+                          title="Copia a chave e abre o portal da SEFAZ"
                         >
-                          <span>Consulta Completa SEFAZ-GO</span>
+                          <span>Copiar Chave & Abrir SEFAZ-GO</span>
                           <ExternalLink className="w-3 h-3" />
-                        </a>
+                        </button>
                       </div>
                     </div>
 

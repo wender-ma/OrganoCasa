@@ -120,6 +120,7 @@ export const App: React.FC = () => {
         isOpen={isReconciliationOpen}
         receiptData={reconciliationReceipt}
         items={reconciliationItems}
+        listItems={items}
         onClose={() => setIsReconciliationOpen(false)}
         onConfirm={handleApplyReconciliation}
       />
