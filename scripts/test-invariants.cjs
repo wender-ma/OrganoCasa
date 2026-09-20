@@ -84,3 +84,4 @@ if (parentCode.includes('handleCloseScanner = useCallback') && parentCode.includ
 }
 
 console.log('\n=== TODAS AS INVARIANTES A–H FORAM VERIFICADAS COM SUCESSO! ===');
+

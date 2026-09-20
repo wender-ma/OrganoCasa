@@ -214,19 +214,28 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
   let storeName = meta.stateName ? `Supermercado (SEFAZ - ${meta.stateName})` : 'Supermercado (NFC-e)';
   const purchaseDate = meta.emissionDate || new Date().toISOString();
 
-  // 4. Se online, consultar a API serverless da SEFAZ
-  if (typeof window !== 'undefined' && navigator.onLine && (trimmed.startsWith('http') || (accessKey && accessKey.length === 44))) {
+  // 4. Consultar a API serverless da SEFAZ em background
+  const urlToFetch = meta.rawUrl || (trimmed.startsWith('http') ? trimmed : (trimmed.includes('.') ? `https://${trimmed}` : undefined));
+  const hasValidTarget = Boolean(urlToFetch || (accessKey && accessKey.length === 44));
+
+  if (hasValidTarget) {
     const payload = {
-      url: meta.rawUrl || (trimmed.startsWith('http') ? trimmed : undefined),
+      url: urlToFetch,
       accessKey
     };
     console.log('[QR:SEFAZ] Consultando API serverless /api/fetch-sefaz com:', payload);
 
     try {
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+
       const sefazRes = await fetch('/api/fetch-sefaz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller?.signal
+      }).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
       });
 
       console.log('[QR:SEFAZ] Resposta HTTP /api/fetch-sefaz:', sefazRes.status, sefazRes.statusText);
@@ -268,7 +277,7 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
     }
   }
 
-  // 5. Fallback local com os dados estruturados do QR Code
+  // 5. Fallback local com os dados estruturados do QR Code caso a SEFAZ esteja inacessível
   if (meta.cnpj) {
     storeName = `Supermercado (${meta.stateName || 'NFC-e'} - ${meta.cnpj})`;
   }
