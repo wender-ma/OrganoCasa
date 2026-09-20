@@ -179,17 +179,47 @@ export function useReceipts() {
     const calculatedTotal = finalReceiptItems.reduce((sum, it) => sum + it.totalPrice, 0);
     const finalTotalAmount = calculatedTotal > 0 ? Number(calculatedTotal.toFixed(2)) : receiptData.totalAmount;
 
-    // 2. Save Receipt Record
-    await db.receipts.add({
-      id: receiptId,
-      storeName: receiptData.storeName,
-      accessKey: receiptData.accessKey,
-      totalAmount: finalTotalAmount,
-      purchaseDate,
-      rawType: receiptData.rawType,
-      items: finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items,
-      createdAt: new Date().toISOString()
-    });
+    // 2. Save Receipt Record (com deduplicação por chave de acesso)
+    let targetReceiptId = receiptId;
+    if (receiptData.accessKey) {
+      const existingReceipt = await db.receipts
+        .where('accessKey')
+        .equals(receiptData.accessKey)
+        .first();
+
+      if (existingReceipt) {
+        targetReceiptId = existingReceipt.id;
+        await db.receipts.update(targetReceiptId, {
+          storeName: receiptData.storeName,
+          totalAmount: finalTotalAmount,
+          purchaseDate,
+          rawType: receiptData.rawType,
+          items: finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items
+        });
+      } else {
+        await db.receipts.add({
+          id: targetReceiptId,
+          storeName: receiptData.storeName,
+          accessKey: receiptData.accessKey,
+          totalAmount: finalTotalAmount,
+          purchaseDate,
+          rawType: receiptData.rawType,
+          items: finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items,
+          createdAt: new Date().toISOString()
+        });
+      }
+    } else {
+      await db.receipts.add({
+        id: targetReceiptId,
+        storeName: receiptData.storeName,
+        accessKey: receiptData.accessKey,
+        totalAmount: finalTotalAmount,
+        purchaseDate,
+        rawType: receiptData.rawType,
+        items: finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items,
+        createdAt: new Date().toISOString()
+      });
+    }
 
     // 3. Process each item in reconciliation
     for (const item of reconciliationItems) {

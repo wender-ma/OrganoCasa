@@ -29,6 +29,9 @@ export class OrganoCasaDatabase extends Dexie {
       reminders: 'id, assignedMemberId, isCompleted, dueDate, createdAt, updatedAt',
       receipts: 'id, storeName, purchaseDate, createdAt'
     });
+    this.version(3).stores({
+      receipts: 'id, storeName, accessKey, purchaseDate, createdAt'
+    });
   }
 }
 
