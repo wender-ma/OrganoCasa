@@ -50,6 +50,42 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState(getGeminiApiKey());
 
+  // Callbacks memoizados no topo para respeitar as Regras dos Hooks do React
+  const handleProcessQR = useCallback(
+    async (qrString: string) => {
+      setIsProcessing(true);
+      setOcrStatus('Consultando NFC-e na SEFAZ em segundo plano...');
+      setErrorMessage(null);
+
+      try {
+        const parsed = await parseQRCodeUrl(qrString);
+        onReceiptParsed(parsed);
+        onClose();
+      } catch (err: any) {
+        console.warn('Erro ao processar QR Code:', err);
+        setErrorMessage(
+          err.message ||
+            'Não foi possível ler os produtos do link da NFC-e. Você pode tirar foto do cupom ou carregar o XML.'
+        );
+      } finally {
+        setIsProcessing(false);
+        setOcrStatus('');
+      }
+    },
+    [onReceiptParsed, onClose]
+  );
+
+  const handleCloseScanner = useCallback(() => {
+    setIsCameraScannerOpen(false);
+  }, []);
+
+  const handleScannerSuccess = useCallback(
+    (code: string) => {
+      handleProcessQR(code);
+    },
+    [handleProcessQR]
+  );
+
   if (!isOpen) return null;
 
   // 1. Process XML File
@@ -112,35 +148,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
     }
   };
 
-  // 3. Process QR Code text / URL
-  const handleProcessQR = useCallback(async (qrString: string) => {
-    setIsProcessing(true);
-    setOcrStatus('Consultando NFC-e na SEFAZ em segundo plano...');
-    setErrorMessage(null);
 
-    try {
-      const parsed = await parseQRCodeUrl(qrString);
-      onReceiptParsed(parsed);
-      onClose();
-    } catch (err: any) {
-      console.warn('Erro ao processar QR Code:', err);
-      setErrorMessage(
-        err.message ||
-          'Não foi possível ler os produtos do link da NFC-e. Você pode tirar foto do cupom ou carregar o XML.'
-      );
-    } finally {
-      setIsProcessing(false);
-      setOcrStatus('');
-    }
-  }, [onReceiptParsed, onClose]);
-
-  const handleCloseScanner = useCallback(() => {
-    setIsCameraScannerOpen(false);
-  }, []);
-
-  const handleScannerSuccess = useCallback((code: string) => {
-    handleProcessQR(code);
-  }, [handleProcessQR]);
 
   // 4. Demo sample receipts for quick testing
   const handleLoadDemoReceiptGO = () => {
