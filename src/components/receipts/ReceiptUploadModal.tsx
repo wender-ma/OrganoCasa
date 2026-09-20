@@ -115,6 +115,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   // 3. Process QR Code text / URL
   const handleProcessQR = async (qrString: string) => {
     setIsProcessing(true);
+    setOcrStatus('Consultando NFC-e na SEFAZ em segundo plano...');
     setErrorMessage(null);
 
     try {
@@ -123,9 +124,13 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
       onClose();
     } catch (err: any) {
       console.warn('Erro ao processar QR Code:', err);
-      setErrorMessage('Não foi possível ler os produtos do link da NFC-e. Você pode tirar foto do cupom ou carregar o XML.');
+      setErrorMessage(
+        err.message ||
+          'Não foi possível ler os produtos do link da NFC-e. Você pode tirar foto do cupom ou carregar o XML.'
+      );
     } finally {
       setIsProcessing(false);
+      setOcrStatus('');
     }
   };
 

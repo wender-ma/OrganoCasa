@@ -2,6 +2,47 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+function sefazApiPlugin() {
+  return {
+    name: 'sefaz-api-middleware',
+    configureServer(server: any) {
+      server.middlewares.use('/api/fetch-sefaz', async (req: any, res: any) => {
+        let body = '';
+        req.on('data', (chunk: any) => {
+          body += chunk;
+        });
+        req.on('end', async () => {
+          try {
+            req.body = body ? JSON.parse(body) : {};
+          } catch {
+            req.body = {};
+          }
+          const customRes = {
+            setHeader: (k: string, v: string) => res.setHeader(k, v),
+            status: (code: number) => {
+              res.statusCode = code;
+              return customRes;
+            },
+            json: (data: any) => {
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(data));
+            },
+            end: () => res.end()
+          };
+          try {
+            const { default: handler } = await import('./api/fetch-sefaz');
+            await handler(req, customRes);
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: false, error: err.message }));
+          }
+        });
+      });
+    }
+  };
+}
+
 export default defineConfig({
   server: {
     host: true,
@@ -9,6 +50,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    sefazApiPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'pwa-192x192.svg', 'pwa-512x512.svg'],

@@ -192,12 +192,17 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
 
   // 2. Parse URL parameters
   try {
-    const isUrl = trimmed.startsWith('http://') || trimmed.startsWith('https://') ||
-      trimmed.includes('sefaz.') || trimmed.includes('fazenda.') ||
-      trimmed.includes('nfce.') || trimmed.includes('nfeweb.');
+    let urlString = '';
+    const isUrl =
+      trimmed.startsWith('http://') ||
+      trimmed.startsWith('https://') ||
+      trimmed.includes('sefaz.') ||
+      trimmed.includes('fazenda.') ||
+      trimmed.includes('nfce.') ||
+      trimmed.includes('nfeweb.');
 
     if (isUrl) {
-      let urlString = trimmed;
+      urlString = trimmed;
       if (!urlString.startsWith('http://') && !urlString.startsWith('https://')) {
         urlString = 'https://' + urlString;
       }
@@ -236,11 +241,12 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
         }
       }
 
-      // "p" parameter (pipe-delimited format used by many states like SP, RS, etc.)
+      // "p" parameter (pipe-delimited format used by many states like GO, SP, RS, etc.)
       const pValue = pParam || chaveParam || qrParam || qParam;
       if (pValue && !accessKey) {
-        const parts = pValue.split('|');
-        // Part 0 is usually the 44-digit key
+        // Decode both URL-encoded %7C and pipe |
+        const decodedP = decodeURIComponent(pValue);
+        const parts = decodedP.split('|');
         if (parts.length >= 1) {
           const cleaned = parts[0].replace(/\D/g, '');
           if (cleaned.length >= 44) {
@@ -273,13 +279,13 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
   }
 
   // 3. If online and URL or accessKey is present, query SEFAZ portal via serverless function
-  if (typeof window !== 'undefined' && navigator.onLine && (trimmed.startsWith('http') || (accessKey && accessKey.length === 44))) {
+  if (typeof window !== 'undefined' && navigator.onLine && (trimmed.startsWith('http') || trimmed.includes('sefaz') || trimmed.includes('fazenda') || (accessKey && accessKey.length === 44))) {
     try {
       const sefazRes = await fetch('/api/fetch-sefaz', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: trimmed.startsWith('http') ? trimmed : undefined,
+          url: trimmed.startsWith('http') || trimmed.includes('sefaz') || trimmed.includes('fazenda') ? trimmed : undefined,
           accessKey
         })
       });
@@ -298,7 +304,7 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
               name: it.name,
               quantity: Number(it.quantity) || 1,
               unitPrice: Number(it.unitPrice) || 0,
-              totalPrice: Number(it.totalPrice) || Number(it.quantity || 1) * Number(it.unitPrice || 0),
+              totalPrice: Number(it.totalPrice) || Number((Number(it.quantity || 1) * Number(it.unitPrice || 0)).toFixed(2)),
               unit: it.unit || 'un'
             }))
           };
@@ -308,6 +314,7 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
       console.warn('Consulta online SEFAZ indisponível, usando metadados locais:', apiErr);
     }
   }
+
 
   // 4. Fallback: If access key found, extract state, CNPJ, and date from key structure
   if (accessKey && accessKey.length === 44) {

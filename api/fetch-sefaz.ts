@@ -1,5 +1,3 @@
-import type { IncomingMessage, ServerResponse } from 'http';
-
 interface SefazParsedItem {
   name: string;
   code?: string;
@@ -20,7 +18,7 @@ interface SefazParsedReceipt {
 }
 
 export default async function handler(req: any, res: any) {
-  // Enable CORS for frontend
+  // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -35,7 +33,14 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const body = req.body || {};
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch {}
+    }
+    body = body || {};
+
     const rawUrl = body.url || req.query?.url;
     const accessKeyInput = body.accessKey || req.query?.accessKey;
 
@@ -52,7 +57,6 @@ export default async function handler(req: any, res: any) {
       const cleanKey = accessKeyInput.replace(/\D/g, '');
       if (cleanKey.length === 44) {
         accessKey = cleanKey;
-        // Default to SEFAZ Goiás if UF is 52
         if (accessKey.startsWith('52')) {
           targetUrl = `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe?chNFe=${accessKey}&nVersao=100&tpAmb=1`;
         } else {
@@ -61,7 +65,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    if (!targetUrl) {
+    if (!targetUrl && !accessKey) {
       res.status(400).json({
         success: false,
         error: 'URL ou chave de acesso de 44 dígitos não fornecida.'
@@ -69,30 +73,94 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    // Fetch SEFAZ HTML
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7'
-      },
-      signal: AbortSignal.timeout(12000)
-    });
+    const isGoias =
+      targetUrl.includes('sefaz.go.gov.br') ||
+      targetUrl.includes('go.gov.br') ||
+      accessKey.startsWith('52');
 
-    if (!response.ok) {
+    const headers: Record<string, string> = {
+      'User-Agent': 'curl/8.5.0',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    };
+
+    let finalHtml = '';
+
+    if (isGoias && accessKey) {
+      // SEFAZ Goiás 2-step session flow:
+      // Step 1: Initial request sets session cookies (JSESSIONID, TS01..., CookieGenericoGoias)
+      const initialUrl = targetUrl || `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe?chNFe=${accessKey}`;
+      const res1 = await fetch(initialUrl, {
+        headers,
+        signal: AbortSignal.timeout(10000)
+      });
+
+      let cookieHeader = '';
+      if (typeof res1.headers.getSetCookie === 'function') {
+        cookieHeader = res1.headers
+          .getSetCookie()
+          .map((c) => c.split(';')[0])
+          .join('; ');
+      } else {
+        const rawCookie = res1.headers.get('set-cookie');
+        if (rawCookie) {
+          cookieHeader = rawCookie
+            .split(',')
+            .map((c) => c.split(';')[0].trim())
+            .join('; ');
+        }
+      }
+
+      // Step 2: Fetch rendered Danfe HTML payload with session cookies
+      const renderUrl = `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/render/html/danfeNFCe?chNFe=${accessKey}`;
+      const res2 = await fetch(renderUrl, {
+        headers: {
+          ...headers,
+          Cookie: cookieHeader,
+          Referer: initialUrl
+        },
+        signal: AbortSignal.timeout(10000)
+      });
+
+      if (res2.ok) {
+        const xml = await res2.text();
+        // Unescape XML entities
+        finalHtml = xml
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&apos;/g, "'")
+          .replace(/&amp;/g, '&')
+          .replace(/&atilde;/gi, 'ã')
+          .replace(/&eacute;/gi, 'é')
+          .replace(/&oacute;/gi, 'ó')
+          .replace(/&uacute;/gi, 'ú')
+          .replace(/&iacute;/gi, 'í')
+          .replace(/&ccedil;/gi, 'ç');
+      }
+    }
+
+    // Fallback or Non-GO SEFAZ direct fetch
+    if (!finalHtml && targetUrl) {
+      const response = await fetch(targetUrl, {
+        headers,
+        signal: AbortSignal.timeout(12000)
+      });
+
+      if (response.ok) {
+        finalHtml = await response.text();
+      }
+    }
+
+    if (!finalHtml) {
       res.status(502).json({
         success: false,
-        error: `Servidor da SEFAZ retornou status ${response.status}.`
+        error: 'Não foi possível carregar os dados da SEFAZ.'
       });
       return;
     }
 
-    const html = await response.text();
-
-    // Parse SEFAZ HTML page
-    const parsedData = parseSefazHtml(html, accessKey);
-
+    // Parse extracted HTML
+    const parsedData = parseSefazHtml(finalHtml, accessKey);
     res.status(200).json(parsedData);
   } catch (error: any) {
     console.error('Erro na consulta SEFAZ:', error);
@@ -106,7 +174,7 @@ export default async function handler(req: any, res: any) {
 /**
  * Robust HTML parser for SEFAZ Danfe NFC-e portals (Goiás, SP, RS, etc.)
  */
-function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt {
+export function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt {
   let storeName = 'Supermercado';
   let totalAmount = 0;
   let purchaseDate = new Date().toISOString();
@@ -114,7 +182,6 @@ function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt 
   const items: SefazParsedItem[] = [];
 
   // 1. Extract Store Name
-  // Common SEFAZ classes: .txtTopo, #u20, #content .titulo, .area-identificacao, etc.
   const storeMatch =
     html.match(/class=["'](?:txtTopo|text-center|xNome|bold-titulo|titulo)["'][^>]*>([^<]+)</i) ||
     html.match(/<div id=["']u20["'][^>]*>([^<]+)</i) ||
@@ -132,9 +199,30 @@ function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt 
     }
   }
 
-  // 3. Extract Total Amount
-  // Common total patterns: .totalNFe, .txtMax, Valor a pagar, Total R$
+  // 3. Extract Emission Date
+  const dateMatch =
+    html.match(/Emiss[aã]o:\s*<\/strong>\s*(\d{2}\/\d{2}\/\d{4}\s*\d{2}:\d{2}:\d{2})/i) ||
+    html.match(/Data de Emiss[aã]o:\s*<strong[^>]*>([^<]+)<\/strong>/i) ||
+    html.match(/(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2})/);
+
+  if (dateMatch && dateMatch[1]) {
+    const rawDateStr = dateMatch[1].trim();
+    // Parse DD/MM/YYYY HH:mm:ss to ISO
+    const dParts = rawDateStr.match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?/);
+    if (dParts) {
+      const day = parseInt(dParts[1], 10);
+      const month = parseInt(dParts[2], 10) - 1;
+      const year = parseInt(dParts[3], 10);
+      const hour = dParts[4] ? parseInt(dParts[4], 10) : 12;
+      const min = dParts[5] ? parseInt(dParts[5], 10) : 0;
+      const sec = dParts[6] ? parseInt(dParts[6], 10) : 0;
+      purchaseDate = new Date(year, month, day, hour, min, sec).toISOString();
+    }
+  }
+
+  // 4. Extract Total Amount
   const totalMatch =
+    html.match(/Valor a pagar R\$:<\/label><span class=["']totalNumb txtMax["']>([^<]+)<\/span>/i) ||
     html.match(/class=["'](?:totalNFe|txtMax|vNF|total-nota)["'][^>]*>([^<]+)</i) ||
     html.match(/Valor a pagar[^<]*<span[^>]*class=["']totalNFe[^"']*["'][^>]*>([^<]+)</i) ||
     html.match(/VALOR TOTAL(?:\s*R\$)?\s*[:]?\s*<[^>]*>([^<]+)</i) ||
@@ -145,9 +233,8 @@ function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt 
     totalAmount = parseFloat(cleanTotal) || 0;
   }
 
-  // 4. Extract Products table (Standard Brazilian Danfe NFC-e table structure)
-  // SEFAZ standard table #tabResult or .tabela-itens:
-  // Each product row has .txtTit (name), .RCod (code), .Rquant (qty), .RUN (unit), .RvlUnit (price), .valor (total)
+  // 5. Extract Products table (Standard Brazilian Danfe NFC-e / SEFAZ table structure)
+  // Each product row has #Item, .txtTit (name), .RCod (code), .Rquant/.Rqtd (qty), .RUN (unit), .RvlUnit (price), .valor (total)
   const rowRegex = /<tr[^>]*id=["']Item\s*[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi;
   let rowMatch: RegExpExecArray | null;
 
@@ -159,22 +246,22 @@ function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt 
       rowHtml.match(/class=["']txtTit[^"']*["'][^>]*>([^<]+)</i) ||
       rowHtml.match(/<span[^>]*class=["']xProd[^"']*["'][^>]*>([^<]+)</i);
 
-    // Quantity
+    // Quantity (supports .Rquant, .Rqtd, "Qtde.:")
     const qtyM =
-      rowHtml.match(/class=["']Rquant[^"']*["'][^>]*>[\s\S]*?<strong>([^<]+)<\/strong>/i) ||
-      rowHtml.match(/Qtde\.:\s*<strong[^>]*>([^<]+)<\/strong>/i) ||
-      rowHtml.match(/class=["']Rquant[^"']*["'][^>]*>([^<]+)</i);
+      rowHtml.match(/class=["']Rqu?an?t?d?[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?\s*([0-9\.,]+)/i) ||
+      rowHtml.match(/Qtde\.:(?:\s*<\/strong>)?\s*([0-9\.,]+)/i) ||
+      rowHtml.match(/class=["']Rqu?an?t?d?[^"']*["'][^>]*>([^<]+)</i);
 
-    // Unit
+    // Unit (supports .RUN, "UN:")
     const unitM =
-      rowHtml.match(/class=["']RUN[^"']*["'][^>]*>[\s\S]*?<strong>([^<]+)<\/strong>/i) ||
-      rowHtml.match(/UN:\s*<strong[^>]*>([^<]+)<\/strong>/i) ||
+      rowHtml.match(/class=["']RUN[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?\s*([a-zA-Z]+)/i) ||
+      rowHtml.match(/UN:\s*(?:\s*<\/strong>)?\s*([a-zA-Z]+)/i) ||
       rowHtml.match(/class=["']RUN[^"']*["'][^>]*>([^<]+)</i);
 
-    // Unit Price
+    // Unit Price (supports .RvlUnit, "Vl. Unit.:")
     const unitPriceM =
-      rowHtml.match(/class=["']RvlUnit[^"']*["'][^>]*>[\s\S]*?<strong>([^<]+)<\/strong>/i) ||
-      rowHtml.match(/Vl\.\s*Unit\.:\s*<strong[^>]*>([^<]+)<\/strong>/i) ||
+      rowHtml.match(/class=["']RvlUnit[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i) ||
+      rowHtml.match(/Vl\.\s*Unit\.:(?:\s*<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i) ||
       rowHtml.match(/class=["']RvlUnit[^"']*["'][^>]*>([^<]+)</i);
 
     // Total Price
@@ -185,13 +272,17 @@ function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt 
     if (nameM && nameM[1]) {
       const name = nameM[1].trim().toUpperCase().replace(/&amp;/g, '&');
       const qtyStr = (qtyM ? qtyM[1] : '1').replace(/[^\d,\.]/g, '').replace(',', '.');
-      const unitStr = (unitM ? unitM[1] : 'un').trim().toLowerCase();
+      const unitStr = (unitM ? unitM[1] : 'un').replace(/[^a-zA-Z]/g, '').toLowerCase() || 'un';
       const unitPriceStr = (unitPriceM ? unitPriceM[1] : '0').replace(/[^\d,\.]/g, '').replace(',', '.');
       const totalStr = (totalM ? totalM[1] : '0').replace(/[^\d,\.]/g, '').replace(',', '.');
 
       const quantity = parseFloat(qtyStr) || 1;
-      const unitPrice = parseFloat(unitPriceStr) || 0;
+      let unitPrice = parseFloat(unitPriceStr) || 0;
       const itemTotal = parseFloat(totalStr) || Number((quantity * unitPrice).toFixed(2));
+
+      if (unitPrice === 0 && quantity > 0 && itemTotal > 0) {
+        unitPrice = Number((itemTotal / quantity).toFixed(2));
+      }
 
       items.push({
         name,
@@ -236,4 +327,3 @@ function parseSefazHtml(html: string, fallbackKey?: string): SefazParsedReceipt 
     items
   };
 }
-

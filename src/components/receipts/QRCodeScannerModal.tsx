@@ -48,6 +48,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
   const scanningRef = useRef<boolean>(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const barcodeDetectorRef = useRef<any>(null);
+  const lastScanTimeRef = useRef<number>(0);
 
   // Initialize Native BarcodeDetector if available
   useEffect(() => {
@@ -105,12 +106,15 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     [scannedCode, stopCamera, onScanSuccess, onClose]
   );
 
-  // Scanning loop
+  // Scanning loop with throttle (~120ms) for high efficiency without lagging mobile CPU
   const scanLoop = useCallback(async () => {
     if (!scanningRef.current || !videoRef.current) return;
     const video = videoRef.current;
+    const now = performance.now();
 
-    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    if (video.readyState === video.HAVE_ENOUGH_DATA && now - lastScanTimeRef.current >= 120) {
+      lastScanTimeRef.current = now;
+
       // 1. Try Native Hardware BarcodeDetector first (Chromium / Android)
       if (barcodeDetectorRef.current) {
         try {
@@ -150,7 +154,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           const imgData = ctx.getImageData(0, 0, targetW, targetH);
 
           const qrResult = jsQR(imgData.data, targetW, targetH, {
-            inversionAttempts: 'dontInvert'
+            inversionAttempts: 'attemptBoth'
           });
 
           if (qrResult && qrResult.data) {
@@ -166,7 +170,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     }
   }, [handleScanResult]);
 
-  // Start Camera Stream
+  // Start Camera Stream with focusMode if available and fallback constraints
   const startCamera = useCallback(async () => {
     stopCamera();
     setIsStarting(true);
@@ -178,15 +182,27 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
         throw new Error('Navegador não suporta acesso à câmera.');
       }
 
-      // Use flexible constraints to ensure camera opens on all devices without OverconstrainedError
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: facingMode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
+      let stream: MediaStream;
+      try {
+        // Preferred high quality constraint with ideal continuous focus
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            advanced: [{ focusMode: 'continuous' } as any]
+          },
+          audio: false
+        });
+      } catch {
+        // Fallback for older browsers or strict constraints
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: facingMode
+          },
+          audio: false
+        });
+      }
 
       streamRef.current = stream;
 
@@ -224,7 +240,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     };
   }, [isOpen, facingMode, startCamera, stopCamera]);
 
-  // Handle image upload from gallery
+  // Handle image upload from gallery with auto-downscaling to prevent memory freeze
   const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -239,28 +255,37 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
       img.onload = async () => {
         URL.revokeObjectURL(objectUrl);
 
-        // 1. Try Native BarcodeDetector
-        if (barcodeDetectorRef.current) {
-          try {
-            const barcodes = await barcodeDetectorRef.current.detect(img);
-            if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-              setIsStarting(false);
-              handleScanResult(barcodes[0].rawValue);
-              return;
-            }
-          } catch {}
-        }
+        // Downscale high-resolution mobile photos (12-48MP) to max 1024px for quick and safe QR detection
+        const origW = img.naturalWidth || img.width;
+        const origH = img.naturalHeight || img.height;
+        const maxDim = 1024;
+        const scale = Math.min(1, maxDim / Math.max(origW, origH));
+        const canvasW = Math.round(origW * scale);
+        const canvasH = Math.round(origH * scale);
 
-        // 2. Try jsQR
         const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
+        canvas.width = canvasW;
+        canvas.height = canvasH;
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
         if (ctx) {
-          ctx.drawImage(img, 0, 0);
-          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const qr = jsQR(imgData.data, canvas.width, canvas.height, {
+          ctx.drawImage(img, 0, 0, canvasW, canvasH);
+
+          // 1. Try Native BarcodeDetector first
+          if (barcodeDetectorRef.current) {
+            try {
+              const barcodes = await barcodeDetectorRef.current.detect(canvas);
+              if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                setIsStarting(false);
+                handleScanResult(barcodes[0].rawValue);
+                return;
+              }
+            } catch {}
+          }
+
+          // 2. Try jsQR with attemptBoth
+          const imgData = ctx.getImageData(0, 0, canvasW, canvasH);
+          const qr = jsQR(imgData.data, canvasW, canvasH, {
             inversionAttempts: 'attemptBoth'
           });
 
@@ -272,7 +297,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
         }
 
         setIsStarting(false);
-        setCameraError('Nenhum QR Code legível foi encontrado nesta foto. Tente uma foto mais nítida.');
+        setCameraError('Nenhum QR Code legível foi encontrado nesta foto. Tente uma foto mais nítida ou aproximada.');
       };
 
       img.onerror = () => {
@@ -289,6 +314,8 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
       e.target.value = '';
     }
   };
+
+
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
