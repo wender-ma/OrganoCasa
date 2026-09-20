@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   X,
   FileCode,
@@ -113,7 +113,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   };
 
   // 3. Process QR Code text / URL
-  const handleProcessQR = async (qrString: string) => {
+  const handleProcessQR = useCallback(async (qrString: string) => {
     setIsProcessing(true);
     setOcrStatus('Consultando NFC-e na SEFAZ em segundo plano...');
     setErrorMessage(null);
@@ -132,7 +132,15 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
       setIsProcessing(false);
       setOcrStatus('');
     }
-  };
+  }, [onReceiptParsed, onClose]);
+
+  const handleCloseScanner = useCallback(() => {
+    setIsCameraScannerOpen(false);
+  }, []);
+
+  const handleScannerSuccess = useCallback((code: string) => {
+    handleProcessQR(code);
+  }, [handleProcessQR]);
 
   // 4. Demo sample receipts for quick testing
   const handleLoadDemoReceiptGO = () => {
@@ -536,8 +544,8 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
           {/* QR Camera Modal */}
           <QRCodeScannerModal
             isOpen={isCameraScannerOpen}
-            onClose={() => setIsCameraScannerOpen(false)}
-            onScanSuccess={(code) => handleProcessQR(code)}
+            onClose={handleCloseScanner}
+            onScanSuccess={handleScannerSuccess}
           />
 
           {/* Live Receipt AI Camera Modal */}

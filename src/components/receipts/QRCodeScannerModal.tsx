@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { X, QrCode, AlertCircle, FlipHorizontal, Loader2, ImagePlus, CheckCircle2, Bug } from 'lucide-react';
 import { useQrScanner } from '../../hooks/useQrScanner';
 
@@ -29,6 +29,17 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     );
   }, [manualDebugToggle]);
 
+  const handleSuccess = useCallback(
+    (decodedText: string) => {
+      // Delay visual de 350ms para feedback verde antes de fechar
+      setTimeout(() => {
+        onScanSuccess(decodedText);
+        onClose();
+      }, 350);
+    },
+    [onScanSuccess, onClose]
+  );
+
   const {
     videoRef,
     scannerState,
@@ -42,17 +53,12 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     handleManualCode
   } = useQrScanner({
     facingMode: 'environment',
-    onScanSuccess: (decodedText) => {
-      // Delay visual de 350ms para feedback verde antes de fechar
-      setTimeout(() => {
-        onScanSuccess(decodedText);
-        onClose();
-      }, 350);
-    }
+    onScanSuccess: handleSuccess
   });
 
-  // Ciclo de vida do modal
+  // Ciclo de vida do modal (Invariante A e F: start e stop são estáveis)
   useEffect(() => {
+    console.log('[scanner:modal:effect_triggered]', { isOpen });
     if (isOpen) {
       start();
     } else {
@@ -95,10 +101,14 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
+  // Invariante H: Vídeo persistente no DOM, alternado via CSS hidden para evitar remontagens destrutivas
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div
+      className={`fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 ${
+        isOpen ? '' : 'hidden'
+      }`}
+      aria-hidden={!isOpen}
+    >
       <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full p-4 sm:p-5 shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col space-y-3 animate-in zoom-in-95 max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -136,7 +146,15 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
         <div className="relative w-full max-w-[270px] sm:max-w-[280px] aspect-square mx-auto bg-black rounded-2xl overflow-hidden shadow-inner border-2 border-emerald-500/30 flex items-center justify-center">
           {/* Elemento de Vídeo SEMPRE no DOM e visível (Padrão 5.4) */}
           <video
-            ref={videoRef}
+            id="qr-video-element"
+            ref={(el) => {
+              if (el && !videoRef.current) {
+                console.log('[scanner:videoElement:mounted]', el.id);
+              } else if (!el && videoRef.current) {
+                console.log('[scanner:videoElement:unmounted]');
+              }
+              videoRef.current = el;
+            }}
             playsInline
             muted
             autoPlay
