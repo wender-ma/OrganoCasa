@@ -7,11 +7,14 @@ import {
   ChevronDown,
   CheckCircle2,
   Users,
-  RefreshCw
+  RefreshCw,
+  Bell
 } from 'lucide-react';
 import { ShoppingList } from '../../types';
 import { HouseholdModal } from '../collaboration/HouseholdModal';
 import { InstallPwaModal } from './InstallPwaModal';
+import { NotificationModal } from '../notifications/NotificationModal';
+import { getNotificationPermission } from '../../services/notifications';
 import {
   getCurrentSession,
   getSyncStatus,
@@ -40,7 +43,13 @@ export const Header: React.FC<HeaderProps> = ({
   const [newListTitle, setNewListTitle] = useState('');
   const [isHouseholdOpen, setIsHouseholdOpen] = useState(false);
   const [isInstallPwaOpen, setIsInstallPwaOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState(getNotificationPermission());
   const [syncStatus, setSyncStatus] = useState(getSyncStatus());
+
+  useEffect(() => {
+    setNotificationPermission(getNotificationPermission());
+  }, [isNotificationOpen]);
 
   useEffect(() => {
     return subscribeSyncStatus((status) => {
@@ -161,6 +170,20 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
+          {/* Notifications on Phone */}
+          <button
+            onClick={() => setIsNotificationOpen(true)}
+            className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-xl transition-colors relative"
+            title="Notificações no Celular"
+          >
+            <Bell className="w-4 h-4" />
+            {notificationPermission === 'granted' ? (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
+            ) : notificationPermission === 'default' ? (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-white dark:ring-slate-900 animate-pulse" />
+            ) : null}
+          </button>
+
           {/* Offline / Online Status Badge */}
           <div
             className={`flex items-center space-x-1 px-2 py-1 rounded-full text-[11px] font-medium transition-colors ${
@@ -196,6 +219,15 @@ export const Header: React.FC<HeaderProps> = ({
       <InstallPwaModal
         isOpen={isInstallPwaOpen}
         onClose={() => setIsInstallPwaOpen(false)}
+      />
+
+      <NotificationModal
+        isOpen={isNotificationOpen}
+        onClose={() => {
+          setIsNotificationOpen(false);
+          setNotificationPermission(getNotificationPermission());
+        }}
+        onOpenInstallGuide={() => setIsInstallPwaOpen(true)}
       />
 
       {/* New List Modal Dialog */}
