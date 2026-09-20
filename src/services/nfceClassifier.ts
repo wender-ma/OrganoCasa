@@ -67,10 +67,15 @@ export function parseNfceQrParams(input: string): ParsedNfceQrMetadata {
   let environment: 'production' | 'homologation' | undefined;
   let qrVersion: string | undefined;
 
-  // 1. Tentar encontrar chave de 44 dígitos contíguos em qualquer lugar do texto
-  const match44 = trimmed.match(/\b(\d{44})\b/);
-  if (match44) {
-    accessKey = match44[1];
+  // 1. Tentar encontrar chave de 44 dígitos (contíguos ou separados por espaços/pontos)
+  const digitsOnly = trimmed.replace(/\D/g, '');
+  if (digitsOnly.length === 44) {
+    accessKey = digitsOnly;
+  } else {
+    const match44 = trimmed.replace(/[\s\.\-\/]/g, '').match(/\b(\d{44})\b/);
+    if (match44) {
+      accessKey = match44[1];
+    }
   }
 
   // 2. Extrair parâmetros se for URL
@@ -82,7 +87,8 @@ export function parseNfceQrParams(input: string): ParsedNfceQrMetadata {
     trimmed.includes('nfce.') ||
     trimmed.includes('nfeweb.') ||
     trimmed.includes('?p=') ||
-    trimmed.includes('&p=');
+    trimmed.includes('&p=') ||
+    trimmed.includes('chaveAcesso=');
 
   if (isUrlLike) {
     let urlString = trimmed;
@@ -92,10 +98,14 @@ export function parseNfceQrParams(input: string): ParsedNfceQrMetadata {
 
     try {
       const url = new URL(urlString);
-      const chNFeParam = url.searchParams.get('chNFe');
+      const chNFeParam =
+        url.searchParams.get('chNFe') ||
+        url.searchParams.get('chaveAcesso') ||
+        url.searchParams.get('chave') ||
+        url.searchParams.get('p');
       const pParam = url.searchParams.get('p') || url.searchParams.get('chave') || url.searchParams.get('qrcode');
 
-      if (chNFeParam) {
+      if (chNFeParam && !pParam?.includes('|')) {
         const cleaned = chNFeParam.replace(/\D/g, '');
         if (cleaned.length >= 44) {
           accessKey = cleaned.substring(0, 44);
@@ -203,6 +213,77 @@ export function classifyScannedCode(rawText: string): ScannedCodeType {
   return {
     type: 'text',
     content: trimmed
+  };
+}
+
+export function formatAccessKey(rawKey: string): string {
+  const digits = rawKey.replace(/\D/g, '').slice(0, 44);
+  const parts: string[] = [];
+  for (let i = 0; i < digits.length; i += 4) {
+    parts.push(digits.slice(i, i + 4));
+  }
+  return parts.join(' ');
+}
+
+export interface KeyInspection {
+  isValid: boolean;
+  rawDigits: string;
+  formatted: string;
+  digitsCount: number;
+  ufCode?: string;
+  stateName?: string;
+  cnpjFormatted?: string;
+  emissionYear?: number;
+  emissionMonth?: number;
+  modelCode?: string;
+  modelLabel?: string;
+  series?: string;
+  number?: number;
+}
+
+export function inspectAccessKey(rawInput: string): KeyInspection {
+  const digits = rawInput.replace(/\D/g, '').slice(0, 44);
+  const digitsCount = digits.length;
+  const formatted = formatAccessKey(digits);
+
+  if (digitsCount < 44) {
+    return {
+      isValid: false,
+      rawDigits: digits,
+      formatted,
+      digitsCount
+    };
+  }
+
+  const ufCode = digits.substring(0, 2);
+  const yy = digits.substring(2, 4);
+  const mm = digits.substring(4, 6);
+  const cnpjRaw = digits.substring(6, 20);
+  const modelCode = digits.substring(20, 22);
+  const series = digits.substring(22, 25);
+  const nNF = parseInt(digits.substring(25, 34), 10);
+
+  const stateName = UF_CODES[ufCode] || 'Outro Estado';
+  const emissionYear = 2000 + parseInt(yy, 10);
+  const emissionMonth = parseInt(mm, 10);
+  const cnpjFormatted = formatCNPJ(cnpjRaw);
+  const modelLabel =
+    modelCode === '65' ? 'NFC-e (Consumidor)' : modelCode === '55' ? 'NF-e (Mercadoria)' : `Modelo ${modelCode}`;
+
+  return {
+    isValid: true,
+    rawDigits: digits,
+    formatted,
+    digitsCount,
+    ufCode,
+    stateName,
+    cnpjFormatted,
+    emissionYear,
+    emissionMonth,
+    modelCode,
+    modelLabel,
+    series,
+    number: isNaN(nNF) ? undefined : nNF
   };
 }
 

@@ -12,7 +12,9 @@ import {
   Edit2,
   Trash2,
   Plus,
-  Save
+  Save,
+  ExternalLink,
+  KeyRound
 } from 'lucide-react';
 import { ReconciliationItem, ProductCategory, ProductUnit } from '../../types';
 import { ParsedReceiptData, guessCategoryFromName } from '../../services/receiptParser';
@@ -262,6 +264,32 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
 
           {/* Reconciliation Sections */}
           <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-6">
+            {/* SEFAZ Portal / Chave de Acesso Alert Banner */}
+            {receiptData.sefazPortalUrl && (
+              <div className="p-3.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl text-xs space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 text-xs">
+                      <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Nota Identificada via Chave de Acesso</span>
+                    </span>
+                    <p className="text-[11px] text-indigo-700 dark:text-indigo-400 leading-relaxed">
+                      {receiptData.note || 'A SEFAZ exige validação humana (captcha) para exibir os produtos. Você pode abrir a consulta oficial para conferir ou acrescentar os itens aqui pelo botão ao lado:'}
+                    </p>
+                  </div>
+                  <a
+                    href={receiptData.sefazPortalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold shrink-0 inline-flex items-center gap-1 shadow-xs transition-colors"
+                  >
+                    <span>Abrir SEFAZ</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+            )}
+
             {/* Quick Add Button */}
             <div className="flex justify-end">
               <button

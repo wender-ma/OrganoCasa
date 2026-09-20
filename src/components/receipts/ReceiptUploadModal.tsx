@@ -11,13 +11,23 @@ import {
   Sparkles,
   Loader2,
   Key,
-  Video
+  KeyRound,
+  Video,
+  ExternalLink,
+  Clipboard,
+  Check
 } from 'lucide-react';
 import {
   parseSEFAZXml,
   parseQRCodeUrl,
+  parseReceiptTextHeuristics,
   ParsedReceiptData
 } from '../../services/receiptParser';
+import {
+  formatAccessKey,
+  inspectAccessKey,
+  KeyInspection
+} from '../../services/nfceClassifier';
 import {
   extractReceiptFromMultipleImages,
   getGeminiApiKey,
@@ -37,7 +47,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   onClose,
   onReceiptParsed
 }) => {
-  const [activeTab, setActiveTab] = useState<'qr' | 'xml' | 'ocr' | 'demo'>('qr');
+  const [activeTab, setActiveTab] = useState<'qr' | 'key' | 'xml' | 'ocr' | 'demo'>('qr');
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string>('');
   const [ocrProgress, setOcrProgress] = useState<number>(0);
@@ -45,6 +55,13 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [isLiveCameraOpen, setIsLiveCameraOpen] = useState(false);
   const [qrTextInput, setQrTextInput] = useState('');
+
+  // Chave de Acesso (44 Dígitos) state
+  const [accessKeyInput, setAccessKeyInput] = useState('');
+  const [keyInspection, setKeyInspection] = useState<KeyInspection | null>(null);
+  const [pastedSefazText, setPastedSefazText] = useState('');
+  const [showPastedSection, setShowPastedSection] = useState(false);
+  const [copiedKeySuccess, setCopiedKeySuccess] = useState(false);
 
   // Gemini API Key config
   const [showKeyModal, setShowKeyModal] = useState(false);
@@ -92,6 +109,50 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
     },
     [handleProcessQR]
   );
+
+  const handleKeyInputChange = useCallback((val: string) => {
+    const formatted = formatAccessKey(val);
+    setAccessKeyInput(formatted);
+    setKeyInspection(inspectAccessKey(val));
+  }, []);
+
+  const handlePasteKey = useCallback(async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText();
+        handleKeyInputChange(text);
+        setCopiedKeySuccess(true);
+        setTimeout(() => setCopiedKeySuccess(false), 2000);
+      }
+    } catch {}
+  }, [handleKeyInputChange]);
+
+  const handleSubmitKey = useCallback(() => {
+    const cleanKey = accessKeyInput.replace(/\D/g, '');
+    if (cleanKey.length === 44) {
+      handleProcessQR(cleanKey);
+    }
+  }, [accessKeyInput, handleProcessQR]);
+
+  const handleProcessPastedText = useCallback(() => {
+    if (!pastedSefazText.trim()) return;
+    setIsProcessing(true);
+    setOcrStatus('Processando tabela copiada da SEFAZ...');
+    try {
+      const parsed = parseReceiptTextHeuristics(pastedSefazText);
+      const cleanKey = accessKeyInput.replace(/\D/g, '');
+      if (cleanKey.length === 44) {
+        parsed.accessKey = cleanKey;
+      }
+      onReceiptParsed(parsed);
+      onClose();
+    } catch (e: any) {
+      setErrorMessage(e.message || 'Não foi possível extrair produtos do texto colado.');
+    } finally {
+      setIsProcessing(false);
+      setOcrStatus('');
+    }
+  }, [pastedSefazText, accessKeyInput, onReceiptParsed, onClose]);
 
   if (!isOpen) return null;
 
@@ -309,10 +370,10 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
           </div>
 
           {/* Input Methods Tabs */}
-          <div className="grid grid-cols-4 p-2 bg-slate-100 dark:bg-slate-850 gap-1 border-b border-slate-200 dark:border-slate-800">
+          <div className="grid grid-cols-5 p-2 bg-slate-100 dark:bg-slate-850 gap-1 border-b border-slate-200 dark:border-slate-800">
             <button
               onClick={() => setActiveTab('qr')}
-              className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
+              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
                 activeTab === 'qr'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -323,8 +384,20 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('key')}
+              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
+                activeTab === 'key'
+                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <KeyRound className="w-4 h-4" />
+              <span>Chave 44D</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('ocr')}
-              className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
+              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
                 activeTab === 'ocr'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -336,7 +409,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
 
             <button
               onClick={() => setActiveTab('xml')}
-              className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
+              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
                 activeTab === 'xml'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -348,7 +421,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
 
             <button
               onClick={() => setActiveTab('demo')}
-              className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
+              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
                 activeTab === 'demo'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -408,6 +481,26 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                       </button>
                     </div>
 
+                    {/* Quick Jump to Key Tab when QR is damaged */}
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl flex items-center justify-between text-left">
+                      <div className="flex items-center space-x-2.5">
+                        <div className="p-2 bg-indigo-100 dark:bg-indigo-900 rounded-xl text-indigo-600 dark:text-indigo-400 shrink-0">
+                          <KeyRound className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h5 className="font-bold text-slate-900 dark:text-white text-xs">QR Code ilegível ou borrado?</h5>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">Identifique pelo número da chave de acesso</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('key')}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors shadow-xs"
+                      >
+                        Usar Chave
+                      </button>
+                    </div>
+
                     <div className="pt-2 text-left">
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                         Ou digite/cole a URL da NFC-e ou chave de 44 dígitos:
@@ -417,7 +510,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                           type="text"
                           value={qrTextInput}
                           onChange={(e) => setQrTextInput(e.target.value)}
-                          placeholder="Ex: http://nfce.fazenda... ou 3524..."
+                          placeholder="Ex: http://nfce.fazenda... ou 5226..."
                           className="flex-1 px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500"
                         />
                         <button
@@ -428,6 +521,158 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                           Ler Link
                         </button>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'key' && (
+                  <div className="space-y-4 text-left">
+                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-1.5">
+                      <div className="flex items-center space-x-2 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
+                        <KeyRound className="w-4 h-4 text-emerald-600" />
+                        <span>Identificação via Chave de Acesso (44 Dígitos)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                        A chave de acesso está impressa no cupom fiscal acima do QR Code (grupos de 4 dígitos). Ideal quando o código impresso estiver com falha ou danificado.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Digite ou cole a Chave de 44 dígitos:
+                        </label>
+                        <span
+                          className={`text-[11px] font-mono font-bold ${
+                            keyInspection?.isValid
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {keyInspection?.digitsCount || 0} / 44 dígitos
+                        </span>
+                      </div>
+
+                      <div className="relative flex items-center">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={accessKeyInput}
+                          onChange={(e) => handleKeyInputChange(e.target.value)}
+                          placeholder="5226 0906 0572 2303 4408 6502 8000 1062 9392 8017 1666"
+                          className="w-full pl-3.5 pr-20 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono tracking-wide focus:ring-2 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handlePasteKey}
+                          className="absolute right-2 px-2.5 py-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition-colors"
+                        >
+                          {copiedKeySuccess ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-500" />
+                              <span>Colado!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Clipboard className="w-3 h-3" />
+                              <span>Colar</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Live Key Inspector Card */}
+                    {keyInspection && keyInspection.digitsCount >= 4 && (
+                      <div className="p-3.5 bg-slate-100 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 rounded-2xl space-y-2 text-xs">
+                        <span className="font-bold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wide block">
+                          Metadados da Nota Fiscal
+                        </span>
+                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                          <div className="p-2 bg-white dark:bg-slate-850 rounded-xl">
+                            <span className="text-slate-400 block text-[10px]">Estado (UF)</span>
+                            <strong className="text-slate-900 dark:text-slate-100">
+                              {keyInspection.stateName || 'Goiás (GO)'}
+                            </strong>
+                          </div>
+                          <div className="p-2 bg-white dark:bg-slate-850 rounded-xl">
+                            <span className="text-slate-400 block text-[10px]">Emissão</span>
+                            <strong className="text-slate-900 dark:text-slate-100">
+                              {keyInspection.emissionMonth
+                                ? `${String(keyInspection.emissionMonth).padStart(2, '0')}/${keyInspection.emissionYear}`
+                                : '--/----'}
+                            </strong>
+                          </div>
+                          <div className="p-2 bg-white dark:bg-slate-850 rounded-xl">
+                            <span className="text-slate-400 block text-[10px]">CNPJ do Estabelecimento</span>
+                            <strong className="text-slate-900 dark:text-slate-100 font-mono">
+                              {keyInspection.cnpjFormatted || '---'}
+                            </strong>
+                          </div>
+                          <div className="p-2 bg-white dark:bg-slate-850 rounded-xl">
+                            <span className="text-slate-400 block text-[10px]">Modelo do Documento</span>
+                            <strong className="text-slate-900 dark:text-slate-100">
+                              {keyInspection.modelLabel || 'NFC-e'}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleSubmitKey}
+                        disabled={!keyInspection?.isValid || isProcessing}
+                        className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center space-x-2 transition-all"
+                      >
+                        <KeyRound className="w-4 h-4" />
+                        <span>Identificar Nota Fiscal (44 Dígitos)</span>
+                      </button>
+
+                      <div className="flex items-center justify-between pt-1 text-[11px]">
+                        <span className="text-slate-400">Portal oficial da Fazenda:</span>
+                        <a
+                          href="https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
+                        >
+                          <span>Consulta Completa SEFAZ-GO</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Collapsible Area for Pasted Table Text */}
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setShowPastedSection((prev) => !prev)}
+                        className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 font-medium"
+                      >
+                        <span>{showPastedSection ? '▼' : '▶'} Copiou a tabela da tela da SEFAZ? Colar aqui</span>
+                      </button>
+
+                      {showPastedSection && (
+                        <div className="space-y-2 mt-2 pt-1 animate-in slide-in-from-top-2 duration-150">
+                          <textarea
+                            rows={4}
+                            value={pastedSefazText}
+                            onChange={(e) => setPastedSefazText(e.target.value)}
+                            placeholder="Selecione o texto ou tabela na página da SEFAZ, copie e cole aqui para extrair todos os produtos automaticamente..."
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleProcessPastedText}
+                            disabled={!pastedSefazText.trim()}
+                            className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors"
+                          >
+                            Extrair Produtos do Texto Colado
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -561,6 +806,10 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
             isOpen={isCameraScannerOpen}
             onClose={handleCloseScanner}
             onScanSuccess={handleScannerSuccess}
+            onSwitchToKey={() => {
+              setIsCameraScannerOpen(false);
+              setActiveTab('key');
+            }}
           />
 
           {/* Live Receipt AI Camera Modal */}

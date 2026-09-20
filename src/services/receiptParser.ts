@@ -9,6 +9,8 @@ export interface ParsedReceiptData {
   purchaseDate: string;
   rawType: 'qr_code' | 'xml' | 'ocr_image' | 'manual';
   items: ReceiptItem[];
+  sefazPortalUrl?: string;
+  note?: string;
 }
 
 /**
@@ -264,6 +266,26 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
               totalPrice: Number(it.totalPrice) || Number((Number(it.quantity || 1) * Number(it.unitPrice || 0)).toFixed(2)),
               unit: it.unit || 'un'
             }))
+          };
+        } else if (sefazJson.success && sefazJson.storeName && sefazJson.storeName !== 'Supermercado') {
+          return {
+            storeName: sefazJson.storeName,
+            accessKey: sefazJson.accessKey || accessKey,
+            totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
+            purchaseDate: sefazJson.purchaseDate || purchaseDate,
+            rawType: 'qr_code',
+            sefazPortalUrl: sefazJson.sefazPortalUrl,
+            note: sefazJson.note || 'Nota fiscal identificada pela chave de acesso.',
+            items: [
+              {
+                id: `chave-item-1-${Date.now()}`,
+                name: `COMPRA ${sefazJson.storeName.toUpperCase()}`,
+                quantity: 1,
+                unitPrice: totalAmount > 0 ? totalAmount : 0,
+                totalPrice: totalAmount > 0 ? totalAmount : 0,
+                unit: 'un'
+              }
+            ]
           };
         } else {
           console.warn('[QR:SEFAZ] SEFAZ respondeu, mas sem itens parseados:', sefazJson);

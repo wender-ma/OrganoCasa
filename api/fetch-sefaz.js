@@ -296,7 +296,47 @@ async function handler(req, res) {
       }
     }
 
+    // If SEFAZ did not return HTML (e.g. Turnstile CAPTCHA required for raw access keys)
     if (!finalHtml) {
+      if (accessKey && accessKey.length === 44) {
+        let storeName = 'Supermercado (NFC-e)';
+        const cnpj = accessKey.substring(6, 20);
+        try {
+          const cnpjRes = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
+            headers: { 'User-Agent': 'OrganoCasa/1.3.6 (https://organo-casa.vercel.app)' },
+            signal: createTimeoutSignal(3500)
+          });
+          if (cnpjRes.ok) {
+            const cData = await cnpjRes.json();
+            const rawName = cData.nome_fantasia || cData.razao_social;
+            if (rawName) {
+              storeName = `${rawName}${cData.municipio ? ` (${cData.municipio} - ${cData.uf})` : ''}`;
+            }
+          }
+        } catch (e) {
+          console.warn('Erro ao consultar CNPJ:', e.message);
+        }
+
+        const yy = accessKey.substring(2, 4);
+        const mm = accessKey.substring(4, 6);
+        const emissionDate = new Date(2000 + parseInt(yy, 10), parseInt(mm, 10) - 1, 1).toISOString();
+
+        res.status(200).json({
+          success: true,
+          storeName,
+          accessKey,
+          totalAmount: 0,
+          purchaseDate: emissionDate,
+          items: [],
+          requiresManualItems: true,
+          sefazPortalUrl: accessKey.startsWith('52')
+            ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
+            : 'https://www.fazenda.sp.gov.br/nfce/consulta',
+          note: 'Nota identificada pelo CNPJ do emissor na Receita Federal. O portal da SEFAZ exige validação humana (captcha) para consulta de itens desta chave sem QR Code.'
+        });
+        return;
+      }
+
       res.status(502).json({
         success: false,
         error: 'Não foi possível carregar os dados da SEFAZ.'
@@ -306,7 +346,33 @@ async function handler(req, res) {
 
     // Parse extracted HTML
     const parsedData = parseSefazHtml(finalHtml, accessKey);
-    res.status(200).json(parsedData);
+
+    // If storeName is still generic, enrich with BrasilAPI
+    if ((!parsedData.storeName || parsedData.storeName.startsWith('Supermercado')) && accessKey && accessKey.length === 44) {
+      const cnpj = accessKey.substring(6, 20);
+      try {
+        const cnpjRes = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
+          headers: { 'User-Agent': 'OrganoCasa/1.3.6 (https://organo-casa.vercel.app)' },
+          signal: createTimeoutSignal(3500)
+        });
+        if (cnpjRes.ok) {
+          const cData = await cnpjRes.json();
+          const rawName = cData.nome_fantasia || cData.razao_social;
+          if (rawName) {
+            parsedData.storeName = `${rawName}${cData.municipio ? ` (${cData.municipio} - ${cData.uf})` : ''}`;
+          }
+        }
+      } catch {}
+    }
+
+    res.status(200).json({
+      ...parsedData,
+      success: true,
+      requiresManualItems: parsedData.items.length === 0,
+      sefazPortalUrl: accessKey?.startsWith('52')
+        ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
+        : 'https://www.fazenda.sp.gov.br/nfce/consulta'
+    });
   } catch (error) {
     console.error('Erro na consulta SEFAZ:', error);
     res.status(500).json({
@@ -319,3 +385,4 @@ async function handler(req, res) {
 module.exports = handler;
 module.exports.default = handler;
 module.exports.parseSefazHtml = parseSefazHtml;
+
