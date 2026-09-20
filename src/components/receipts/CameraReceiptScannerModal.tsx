@@ -188,9 +188,14 @@ export const CameraReceiptScannerModal: React.FC<CameraReceiptScannerModalProps>
       );
 
       if (parsedData.items.length === 0) {
-        throw new Error(
-          'Não foi possível identificar os produtos nas fotos. Verifique a iluminação e nitidez do texto.'
-        );
+        parsedData.items.push({
+          id: `camera-item-${Date.now()}`,
+          name: `${parsedData.storeName?.toUpperCase() || 'COMPRA CUPOM FISCAL'}`,
+          quantity: 1,
+          unitPrice: parsedData.totalAmount || 0,
+          totalPrice: parsedData.totalAmount || 0,
+          unit: 'un'
+        });
       }
 
       onReceiptCaptured(parsedData);

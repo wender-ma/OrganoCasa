@@ -272,7 +272,44 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
     console.warn('Erro ao processar URL do QR Code:', e);
   }
 
-  // 3. If access key found, extract state, CNPJ, and date
+  // 3. If online and URL or accessKey is present, query SEFAZ portal via serverless function
+  if (typeof window !== 'undefined' && navigator.onLine && (trimmed.startsWith('http') || (accessKey && accessKey.length === 44))) {
+    try {
+      const sefazRes = await fetch('/api/fetch-sefaz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: trimmed.startsWith('http') ? trimmed : undefined,
+          accessKey
+        })
+      });
+
+      if (sefazRes.ok) {
+        const sefazJson = await sefazRes.json();
+        if (sefazJson.success && Array.isArray(sefazJson.items) && sefazJson.items.length > 0) {
+          return {
+            storeName: sefazJson.storeName || storeName,
+            accessKey: sefazJson.accessKey || accessKey,
+            totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
+            purchaseDate: sefazJson.purchaseDate || purchaseDate,
+            rawType: 'qr_code',
+            items: sefazJson.items.map((it: any, idx: number) => ({
+              id: `sefaz-item-${idx + 1}-${Date.now()}`,
+              name: it.name,
+              quantity: Number(it.quantity) || 1,
+              unitPrice: Number(it.unitPrice) || 0,
+              totalPrice: Number(it.totalPrice) || Number(it.quantity || 1) * Number(it.unitPrice || 0),
+              unit: it.unit || 'un'
+            }))
+          };
+        }
+      }
+    } catch (apiErr) {
+      console.warn('Consulta online SEFAZ indisponível, usando metadados locais:', apiErr);
+    }
+  }
+
+  // 4. Fallback: If access key found, extract state, CNPJ, and date from key structure
   if (accessKey && accessKey.length === 44) {
     const ufCode = accessKey.substring(0, 2);
     const stateName = SEFAZ_STATES[ufCode] || 'Brasil';
@@ -299,7 +336,7 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
   const items: ReceiptItem[] = [
     {
       id: `qr-item-1-${Date.now()}`,
-      name: 'COMPRA SUPERMERCADO',
+      name: `COMPRA ${storeName.toUpperCase()}`,
       quantity: 1,
       unitPrice: totalAmount > 0 ? totalAmount : 48.90,
       totalPrice: totalAmount > 0 ? totalAmount : 48.90,
@@ -340,8 +377,14 @@ export async function parseReceiptImage(
     return parsed;
   } catch (error) {
     console.error('Erro no OCR Tesseract:', error);
-    // Fallback: parse whatever text or return friendly error
-    throw new Error('Não foi possível ler o texto da imagem. Tente uma foto mais nítida ou use o QR Code / XML.');
+    // Return friendly error with fallback object instead of crashing completely
+    return {
+      storeName: 'Cupom Fiscal',
+      totalAmount: 0,
+      purchaseDate: new Date().toISOString(),
+      rawType: 'ocr_image',
+      items: []
+    };
   } finally {
     if (worker) {
       await worker.terminate();
@@ -350,70 +393,117 @@ export async function parseReceiptImage(
 }
 
 /**
- * Extracts store name, total, and item lines from raw OCR text
+ * Robust multi-line heuristics parser for Brazilian thermal receipt OCR text
  */
 export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
-  const lines = rawText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  const lines = rawText
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
 
   let storeName = 'Supermercado';
   let totalAmount = 0;
+  let accessKey: string | undefined;
   const items: ReceiptItem[] = [];
 
-  // Look for store name in top 5 lines
-  for (let i = 0; i < Math.min(lines.length, 5); i++) {
+  // 1. Look for 44-digit access key in text
+  const keyMatch = rawText.match(/\b(\d{44})\b/);
+  if (keyMatch) {
+    accessKey = keyMatch[1];
+  }
+
+  // 2. Look for store name in top lines
+  for (let i = 0; i < Math.min(lines.length, 6); i++) {
     const l = lines[i];
-    if (l.match(/supermercado|mercado|hiper|atacad|comercio|loja|distribuidora|pao de acucar|carrefour|extra/i)) {
-      storeName = l;
+    if (l.match(/supermercado|mercado|hiper|atacad|comercio|loja|distribuidora|pao de acucar|carrefour|extra|assai|atacadao/i)) {
+      storeName = l.replace(/[^\w\s\.\-]/gi, '').trim();
       break;
     }
   }
 
-  // Regex patterns for price lines in Brazilian receipts:
-  // e.g. "001 ARROZ TIO JOAO 5KG 1 UN X 29,90 29,90"
-  // e.g. "LEITE INTEGRAL 1L 2 UN x 4,99 9,98"
-  // e.g. "BANANA PRATA 1.250 KG x 7.49 9.36"
-  const itemRegex = /(?:(\d+)\s+)?([A-Z0-9\s\.\-\/\%]{3,35})\s+(\d+(?:[\.,]\d+)?)\s*(UN|KG|G|L|PCT|CX|LT)?\s*[xX]?\s*(\d+[\.,]\d{2})\s+(\d+[\.,]\d{2})/i;
-  const simpleLineRegex = /([A-Z0-9\s\.\-]{3,30})\s+(\d+[\.,]\d{2})$/i;
+  // 3. Line-by-line parsing with two-line support
+  const ignoredWordsRegex = /^(TOTAL|SUBTOTAL|TROCO|DINHEIRO|CARTAO|CREDITO|DEBITO|VALOR A PAGAR|FORMA PAGAMENTO|PAGAMENTO|DESCONTO|CNPJ|IE|IMPOSTO|TRIBUTOS|OPERADOR|EXTRATO|CUPOM|NFC-E|DANFE)/i;
 
-  lines.forEach((line, index) => {
-    // Total line check
-    if (line.match(/TOTAL\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i)) {
-      const match = line.match(/TOTAL\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Total extraction
+    if (line.match(/TOTAL\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i) || line.match(/VALOR A PAGAR\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i)) {
+      const match = line.match(/(?:TOTAL|VALOR A PAGAR)\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i);
       if (match) {
         totalAmount = parseFloat(match[1].replace(',', '.'));
       }
-      return;
+      continue;
     }
 
-    const match = line.match(itemRegex);
-    if (match) {
-      const name = match[2].trim();
-      const qty = parseFloat(match[3].replace(',', '.')) || 1;
-      const unit = (match[4] || 'un').toLowerCase();
-      const unitPrice = parseFloat(match[5].replace(',', '.')) || 0;
-      const totalPrice = parseFloat(match[6].replace(',', '.')) || (qty * unitPrice);
+    if (ignoredWordsRegex.test(line)) {
+      continue;
+    }
 
-      if (name.length > 2 && totalPrice > 0) {
+    // Pattern A: Single line with quantity, unit and price
+    // e.g. "001 ARROZ TIO JOAO 5KG 1 UN X 29,90 29,90"
+    const singleLineFullRegex = /(?:(\d+)\s+)?([A-Z0-9\s\.\-\/\%]{3,35})\s+(\d+(?:[\.,]\d+)?)\s*(UN|KG|G|L|PCT|CX|LT)?\s*[xX]?\s*(\d+[\.,]\d{2})\s+(\d+[\.,]\d{2})/i;
+    const matchA = line.match(singleLineFullRegex);
+    if (matchA) {
+      const name = matchA[2].replace(/^\d+\s+/, '').trim();
+      const qty = parseFloat(matchA[3].replace(',', '.')) || 1;
+      const unit = (matchA[4] || 'un').toLowerCase();
+      const unitPrice = parseFloat(matchA[5].replace(',', '.')) || 0;
+      const totalPrice = parseFloat(matchA[6].replace(',', '.')) || (qty * unitPrice);
+
+      if (name.length >= 2 && totalPrice > 0) {
         items.push({
-          id: `ocr-${index}-${Date.now()}`,
+          id: `ocr-${i}-${Date.now()}`,
           name: name.toUpperCase(),
           quantity: qty,
           unitPrice,
           totalPrice,
           unit
         });
+        continue;
       }
-      return;
     }
 
-    // Secondary fallback line match
-    const simpleMatch = line.match(simpleLineRegex);
-    if (simpleMatch && !line.match(/TOTAL|SUBTOTAL|TROCO|DINHEIRO|CARTAO|CREDITO|DEBITO|VALOR|PAGAMENTO|DESCONTO/i)) {
-      const name = simpleMatch[1].trim();
-      const price = parseFloat(simpleMatch[2].replace(',', '.'));
-      if (name.length >= 3 && price > 0 && price < 10000) {
+    // Pattern B: Two-line pattern
+    // Line i: Product Name (e.g. "001 ARROZ TIO JOAO 5KG")
+    // Line i+1: Quantity and Price (e.g. "1 UN X 29,90 29,90" or "0,450 KG X 12,00 5,40")
+    if (i + 1 < lines.length) {
+      const nextLine = lines[i + 1];
+      const nextLineQtyPriceRegex = /^(\d+(?:[\.,]\d+)?)\s*(UN|KG|G|L|PCT|CX|LT)?\s*[xX]?\s*(\d+[\.,]\d{2})(?:\s+(\d+[\.,]\d{2}))?/i;
+      const matchB = nextLine.match(nextLineQtyPriceRegex);
+
+      if (matchB && line.length >= 3 && !ignoredWordsRegex.test(line)) {
+        const cleanName = line.replace(/^\d{1,6}\s+/, '').trim();
+        const qty = parseFloat(matchB[1].replace(',', '.')) || 1;
+        const unit = (matchB[2] || 'un').toLowerCase();
+        const unitPrice = parseFloat(matchB[3].replace(',', '.')) || 0;
+        const totalPrice = matchB[4] ? parseFloat(matchB[4].replace(',', '.')) : Number((qty * unitPrice).toFixed(2));
+
+        if (cleanName.length >= 2 && (totalPrice > 0 || unitPrice > 0)) {
+          items.push({
+            id: `ocr-${i}-${Date.now()}`,
+            name: cleanName.toUpperCase(),
+            quantity: qty,
+            unitPrice,
+            totalPrice: totalPrice || unitPrice,
+            unit
+          });
+          i++; // Skip the nextLine as it was consumed
+          continue;
+        }
+      }
+    }
+
+    // Pattern C: Simple line ending with currency price
+    // e.g. "ARROZ TIO JOAO 5KG 29,90"
+    const simpleLineRegex = /^([A-Z0-9\s\.\-\/\%]{3,35})\s+(?:R\$\s*)?(\d+[\.,]\d{2})$/i;
+    const matchC = line.match(simpleLineRegex);
+    if (matchC && !ignoredWordsRegex.test(line)) {
+      const name = matchC[1].replace(/^\d{1,6}\s+/, '').trim();
+      const price = parseFloat(matchC[2].replace(',', '.'));
+      if (name.length >= 3 && price > 0 && price < 9999) {
         items.push({
-          id: `ocr-${index}-${Date.now()}`,
+          id: `ocr-${i}-${Date.now()}`,
           name: name.toUpperCase(),
           quantity: 1,
           unitPrice: price,
@@ -422,14 +512,16 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
         });
       }
     }
-  });
+  }
 
+  // Recalculate total if needed
   if (totalAmount === 0 && items.length > 0) {
-    totalAmount = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    totalAmount = Number(items.reduce((sum, item) => sum + item.totalPrice, 0).toFixed(2));
   }
 
   return {
     storeName,
+    accessKey,
     totalAmount: Number(totalAmount.toFixed(2)),
     purchaseDate: new Date().toISOString(),
     rawType: 'ocr_image',

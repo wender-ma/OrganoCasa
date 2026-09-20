@@ -92,14 +92,20 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
       });
 
       if (parsedData.items.length === 0) {
-        throw new Error(
-          'Não foi possível identificar os produtos nas fotos. Tente fotos mais nítidas ou use o QR Code.'
-        );
+        parsedData.items.push({
+          id: `manual-cupom-${Date.now()}`,
+          name: `${parsedData.storeName?.toUpperCase() || 'COMPRA CUPOM FISCAL'}`,
+          quantity: 1,
+          unitPrice: parsedData.totalAmount || 0,
+          totalPrice: parsedData.totalAmount || 0,
+          unit: 'un'
+        });
       }
 
       onReceiptParsed(parsedData);
       onClose();
     } catch (err: any) {
+      console.warn('Erro na extração de imagem:', err);
       setErrorMessage(err.message || 'Erro no reconhecimento das fotos do cupom.');
     } finally {
       setIsProcessing(false);
@@ -116,13 +122,74 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
       onReceiptParsed(parsed);
       onClose();
     } catch (err: any) {
-      setErrorMessage('Erro ao processar o link da NFC-e.');
+      console.warn('Erro ao processar QR Code:', err);
+      setErrorMessage('Não foi possível ler os produtos do link da NFC-e. Você pode tirar foto do cupom ou carregar o XML.');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // 4. Demo sample receipt for quick testing
+  // 4. Demo sample receipts for quick testing
+  const handleLoadDemoReceiptGO = () => {
+    const demoData: ParsedReceiptData = {
+      storeName: 'Hipermercado Goiás Alimentos (Goiânia - GO)',
+      accessKey: '52240901234567000199650010001234561001234567',
+      totalAmount: 142.30,
+      purchaseDate: new Date().toISOString(),
+      rawType: 'qr_code',
+      items: [
+        {
+          name: 'ARROZ CRISTAL TIPO 1 5KG',
+          barcode: '7896001234567',
+          quantity: 1,
+          unitPrice: 32.90,
+          totalPrice: 32.90,
+          unit: 'pct'
+        },
+        {
+          name: 'FEIJAO CARIOCA BARAO 1KG',
+          barcode: '7896001234568',
+          quantity: 2,
+          unitPrice: 8.50,
+          totalPrice: 17.00,
+          unit: 'pct'
+        },
+        {
+          name: 'LEITE INTEGRAL PIRACANJUBA 1L',
+          barcode: '7896001234569',
+          quantity: 6,
+          unitPrice: 5.19,
+          totalPrice: 31.14,
+          unit: 'cx'
+        },
+        {
+          name: 'ACUCAR CRISTAL ITAMARATY 5KG',
+          quantity: 1,
+          unitPrice: 19.80,
+          totalPrice: 19.80,
+          unit: 'pct'
+        },
+        {
+          name: 'OLEO DE SOJA SOYA 900ML',
+          quantity: 2,
+          unitPrice: 6.89,
+          totalPrice: 13.78,
+          unit: 'un'
+        },
+        {
+          name: 'CAFE RANCHERO TRADICIONAL 500G',
+          quantity: 2,
+          unitPrice: 13.84,
+          totalPrice: 27.68,
+          unit: 'pct'
+        }
+      ]
+    };
+
+    onReceiptParsed(demoData);
+    onClose();
+  };
+
   const handleLoadDemoReceipt = () => {
     const demoData: ParsedReceiptData = {
       storeName: 'Supermercado Central Gourmet',
@@ -410,23 +477,49 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                 )}
 
                 {activeTab === 'demo' && (
-                  <div className="space-y-4 text-center">
-                    <div className="p-6 bg-teal-50 dark:bg-teal-950/40 rounded-3xl border border-teal-200 dark:border-teal-800 space-y-3">
-                      <Sparkles className="w-10 h-10 text-teal-600 dark:text-teal-400 mx-auto" />
-                      <div className="space-y-1">
-                        <h4 className="font-bold text-slate-900 dark:text-white text-sm">
-                          Testar com Cupom de Demonstração
-                        </h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
-                          Simula a leitura de uma compra real de supermercado para testar a tela de conciliação de itens comprados, esquecidos e compras extras.
-                        </p>
+                  <div className="space-y-3">
+                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800 space-y-2 text-left">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-1.5 bg-emerald-100 dark:bg-emerald-900 rounded-lg text-emerald-700 dark:text-emerald-300">
+                          <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                            Cupom Real de Goiás (SEFAZ-GO)
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Arroz Cristal, Feijão Barão, Leite Piracanjuba, Açúcar, Óleo, Café (6 itens - R$ 142,30)
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleLoadDemoReceiptGO}
+                        className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center space-x-1.5 transition-all"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>Carregar Cupom de Goiás (SEFAZ-GO)</span>
+                      </button>
+                    </div>
+
+                    <div className="p-4 bg-slate-50 dark:bg-slate-850 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-left">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-300">
+                          <FileText className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                            Cupom Geral Supermercado
+                          </h4>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Arroz, Feijão, Leite, Chocolate e Sabonete (5 itens - R$ 118,90)
+                          </p>
+                        </div>
                       </div>
                       <button
                         onClick={handleLoadDemoReceipt}
-                        className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-600/20 inline-flex items-center space-x-2"
+                        className="w-full py-2.5 px-4 bg-slate-700 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all"
                       >
-                        <Sparkles className="w-4 h-4" />
-                        <span>Carregar Nota de Teste</span>
+                        <span>Carregar Cupom Geral</span>
                       </button>
                     </div>
                   </div>

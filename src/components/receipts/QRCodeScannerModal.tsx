@@ -96,8 +96,12 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
         await scanner.start(
           { facingMode },
           {
-            fps: 10,
-            qrbox: { width: 250, height: 250 },
+            fps: 15,
+            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+              const size = Math.max(160, Math.floor(minEdge * 0.72));
+              return { width: size, height: size };
+            },
             disableFlip: false
           },
           (decodedText) => {
