@@ -20,7 +20,10 @@
     padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
   }
   .header-safe {
-    padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+    padding-top: max(calc(env(safe-area-inset-top, 0px) * 0.15), 0.375rem);
+  }
+  .header-flush-top {
+    padding-top: max(calc(env(safe-area-inset-top, 0px) * 0.15), 0.375rem);
   }
   .modal-safe-top {
     padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
