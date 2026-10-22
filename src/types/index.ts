@@ -77,6 +77,9 @@ export interface HouseholdMember {
   color: string; // Hex color code or tailwind color
   avatarEmoji?: string;
   isDefault?: boolean;
+  userId?: string;
+  role?: 'owner' | 'member';
+  createdAt?: string;
 }
 
 export interface ReminderCheckItem {

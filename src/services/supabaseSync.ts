@@ -18,6 +18,16 @@ export interface UserSession {
   householdId: string;
   householdName: string;
   inviteCode?: string;
+  isOwner?: boolean;
+}
+
+export interface ConnectedHousehold {
+  id: string;
+  name: string;
+  inviteCode?: string;
+  isOwner: boolean;
+  isCurrent: boolean;
+  createdAt?: string;
 }
 
 export interface SyncStatus {
@@ -213,6 +223,87 @@ function generateInviteCode(): string {
   return `CASA-${Math.floor(100000 + Math.random() * 900000)}`;
 }
 
+export function getSavedConnectedHouseholds(): ConnectedHousehold[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('organocasa_known_households');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveConnectedHouseholds(list: ConnectedHousehold[]): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem('organocasa_known_households', JSON.stringify(list));
+}
+
+export async function getConnectedHouseholds(): Promise<ConnectedHousehold[]> {
+  const current = getCurrentSession();
+  let localList = getSavedConnectedHouseholds();
+
+  if (current) {
+    const found = localList.find((h) => h.id === current.householdId);
+    if (!found) {
+      localList.push({
+        id: current.householdId,
+        name: current.householdName,
+        inviteCode: current.inviteCode,
+        isOwner: current.isOwner ?? true,
+        isCurrent: true
+      });
+    } else {
+      found.name = current.householdName;
+      found.inviteCode = current.inviteCode || found.inviteCode;
+      found.isOwner = current.isOwner ?? found.isOwner ?? true;
+      found.isCurrent = true;
+    }
+  }
+
+  // Ensure only current household has isCurrent: true
+  localList = localList.map((h) => ({
+    ...h,
+    isCurrent: h.id === current?.householdId
+  }));
+
+  const client = getSupabaseClient();
+  if (client && current?.id) {
+    try {
+      const { data: memberRows } = await client
+        .from('household_members')
+        .select('household_id, is_default, households(id, name, invite_code, created_by)')
+        .eq('user_id', current.id);
+
+      if (memberRows && memberRows.length > 0) {
+        for (const row of memberRows) {
+          const house: any = row.households;
+          if (house) {
+            const isOwner = !house.created_by || house.created_by === current.id;
+            const existingIdx = localList.findIndex((h) => h.id === house.id);
+            const item: ConnectedHousehold = {
+              id: house.id,
+              name: house.name,
+              inviteCode: house.invite_code,
+              isOwner,
+              isCurrent: house.id === current.householdId
+            };
+            if (existingIdx >= 0) {
+              localList[existingIdx] = { ...localList[existingIdx], ...item };
+            } else {
+              localList.push(item);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao sincronizar lista de casas:', err);
+    }
+  }
+
+  saveConnectedHouseholds(localList);
+  return localList;
+}
+
 /**
  * Authentication with Supabase or Local Fallback
  */
@@ -274,10 +365,27 @@ export async function authenticateWithEmail(
         id: userId,
         householdId,
         householdName,
-        inviteCode
+        inviteCode,
+        isOwner: true
       };
 
       saveCurrentSession(session);
+      const known = getSavedConnectedHouseholds().map((h) => ({ ...h, isCurrent: false }));
+      const existingIdx = known.findIndex((h) => h.id === householdId);
+      const houseRecord: ConnectedHousehold = {
+        id: householdId,
+        name: householdName,
+        inviteCode,
+        isOwner: true,
+        isCurrent: true
+      };
+      if (existingIdx >= 0) {
+        known[existingIdx] = houseRecord;
+      } else {
+        known.push(houseRecord);
+      }
+      saveConnectedHouseholds(known);
+
       await triggerFullSync();
       setupRealtimeSubscriptions();
       return session;
@@ -296,7 +404,7 @@ export async function authenticateWithEmail(
       // Find all households the user is a member of, prioritizing is_default = true
       const { data: memberRows } = await client
         .from('household_members')
-        .select('id, household_id, is_default, households(id, name, invite_code)')
+        .select('id, household_id, is_default, households(id, name, invite_code, created_by)')
         .eq('user_id', userId)
         .order('is_default', { ascending: false });
 
@@ -306,6 +414,7 @@ export async function authenticateWithEmail(
       let householdObj = (memberData as any)?.households;
       let householdName = householdObj?.name || `Casa de ${cleanEmail.split('@')[0]}`;
       let inviteCode = householdObj?.invite_code || generateInviteCode();
+      const isOwner = !householdObj?.created_by || householdObj?.created_by === userId;
 
       if (!householdId) {
         householdId = `house-${userId.substring(0, 8)}`;
@@ -330,10 +439,38 @@ export async function authenticateWithEmail(
         id: userId,
         householdId,
         householdName,
-        inviteCode
+        inviteCode,
+        isOwner
       };
 
       saveCurrentSession(session);
+
+      // Record known households from memberships
+      const known: ConnectedHousehold[] = [];
+      if (memberRows && memberRows.length > 0) {
+        for (const row of memberRows) {
+          const house: any = row.households;
+          if (house) {
+            known.push({
+              id: house.id,
+              name: house.name,
+              inviteCode: house.invite_code,
+              isOwner: !house.created_by || house.created_by === userId,
+              isCurrent: house.id === householdId
+            });
+          }
+        }
+      }
+      if (!known.some((h) => h.id === householdId)) {
+        known.push({
+          id: householdId,
+          name: householdName,
+          inviteCode,
+          isOwner,
+          isCurrent: true
+        });
+      }
+      saveConnectedHouseholds(known);
 
       // Clean local seed data and cache, then perform fresh pull from the account's household
       await clearSeedData();
@@ -418,7 +555,7 @@ export async function joinHouseholdByCode(inviteCode: string, memberName?: strin
   if (client) {
     const { data: household, error } = await client
       .from('households')
-      .select('id, name, invite_code')
+      .select('id, name, invite_code, created_by')
       .eq('invite_code', cleanCode)
       .single();
 
@@ -429,6 +566,7 @@ export async function joinHouseholdByCode(inviteCode: string, memberName?: strin
     const displayName = memberName?.trim() || (current ? current.email.split('@')[0] : 'Familiar Conectado');
     const userId = current ? current.id : `usr-${Math.random().toString(36).substring(2, 10)}`;
     const userEmail = current ? current.email : `${displayName.toLowerCase().replace(/\s+/g, '')}@familia.local`;
+    const isOwner = household.created_by ? household.created_by === userId : false;
 
     // 1. If this is an authenticated user, mark their other household memberships as not default
     if (current?.id) {
@@ -452,12 +590,30 @@ export async function joinHouseholdByCode(inviteCode: string, memberName?: strin
       id: userId,
       householdId: household.id,
       householdName: household.name,
-      inviteCode: household.invite_code
+      inviteCode: household.invite_code,
+      isOwner
     };
 
     saveCurrentSession(updatedSession);
 
-    // CRITICAL: Clean seed items and replace local Dexie data with the joined household's real data
+    // Record in known households list (maintaining previously connected houses!)
+    const known = getSavedConnectedHouseholds().map((h) => ({ ...h, isCurrent: false }));
+    const existingIdx = known.findIndex((h) => h.id === household.id);
+    const houseRecord: ConnectedHousehold = {
+      id: household.id,
+      name: household.name,
+      inviteCode: household.invite_code,
+      isOwner,
+      isCurrent: true
+    };
+    if (existingIdx >= 0) {
+      known[existingIdx] = houseRecord;
+    } else {
+      known.push(houseRecord);
+    }
+    saveConnectedHouseholds(known);
+
+    // Clean seed items and replace local Dexie data with the joined household's real data
     await clearSeedData();
     await pullFreshHouseholdData(household.id);
     setupRealtimeSubscriptions();
@@ -471,10 +627,230 @@ export async function joinHouseholdByCode(inviteCode: string, memberName?: strin
     id: current ? current.id : `usr-${Math.random().toString(36).substring(2, 10)}`,
     householdId: `house-${cleanCode}`,
     householdName: `Casa Conectada (${cleanCode})`,
-    inviteCode: cleanCode
+    inviteCode: cleanCode,
+    isOwner: false
   };
   saveCurrentSession(updatedSession);
+
+  const known = getSavedConnectedHouseholds().map((h) => ({ ...h, isCurrent: false }));
+  known.push({
+    id: updatedSession.householdId,
+    name: updatedSession.householdName,
+    inviteCode: cleanCode,
+    isOwner: false,
+    isCurrent: true
+  });
+  saveConnectedHouseholds(known);
+
   return updatedSession;
+}
+
+/**
+ * Switch active household seamlessly without losing data or membership
+ */
+export async function switchHousehold(targetHouseholdId: string): Promise<UserSession> {
+  const current = getCurrentSession();
+  if (!current) throw new Error('Nenhuma sessão ativa encontrada.');
+  if (current.householdId === targetHouseholdId) return current;
+
+  currentSyncStatus = { ...currentSyncStatus, isSyncing: true };
+  notifyStatusChange();
+
+  try {
+    let targetHouse: { id: string; name: string; invite_code?: string; created_by?: string } | null = null;
+    const client = getSupabaseClient();
+
+    if (client) {
+      const { data } = await client
+        .from('households')
+        .select('id, name, invite_code, created_by')
+        .eq('id', targetHouseholdId)
+        .maybeSingle();
+      if (data) targetHouse = data;
+
+      if (current.id) {
+        await client
+          .from('household_members')
+          .update({ is_default: false })
+          .eq('user_id', current.id);
+
+        await client
+          .from('household_members')
+          .update({ is_default: true })
+          .eq('user_id', current.id)
+          .eq('household_id', targetHouseholdId);
+      }
+    }
+
+    if (!targetHouse) {
+      const known = getSavedConnectedHouseholds();
+      const found = known.find((h) => h.id === targetHouseholdId);
+      if (found) {
+        targetHouse = {
+          id: found.id,
+          name: found.name,
+          invite_code: found.inviteCode
+        };
+      }
+    }
+
+    if (!targetHouse) {
+      throw new Error('Espaço familiar não encontrado.');
+    }
+
+    const isOwner = targetHouse.created_by ? targetHouse.created_by === current.id : current.isOwner ?? true;
+
+    const newSession: UserSession = {
+      ...current,
+      householdId: targetHouse.id,
+      householdName: targetHouse.name,
+      inviteCode: targetHouse.invite_code || current.inviteCode,
+      isOwner
+    };
+
+    saveCurrentSession(newSession);
+
+    // Update known list isCurrent flag
+    const known = getSavedConnectedHouseholds();
+    const updatedKnown = known.map((h) => ({
+      ...h,
+      isCurrent: h.id === targetHouse!.id
+    }));
+    saveConnectedHouseholds(updatedKnown);
+
+    // Clean local seed data and cache, then pull fresh data for this household
+    await clearSeedData();
+    await pullFreshHouseholdData(targetHouse.id);
+    setupRealtimeSubscriptions();
+
+    return newSession;
+  } finally {
+    currentSyncStatus = { ...currentSyncStatus, isSyncing: false };
+    notifyStatusChange();
+  }
+}
+
+/**
+ * Create a new additional household in the user's hub
+ */
+export async function createAdditionalHousehold(name: string): Promise<UserSession> {
+  const cleanName = name.trim();
+  if (!cleanName) throw new Error('O nome da casa não pode ser vazio.');
+
+  const current = getCurrentSession();
+  const userId = current ? current.id : `usr-${Math.random().toString(36).substring(2, 10)}`;
+  const userEmail = current ? current.email : 'usuario@local';
+  const newHouseholdId = `house-${userId.substring(0, 8)}-${Date.now().toString(36)}`;
+  const inviteCode = generateInviteCode();
+
+  const client = getSupabaseClient();
+  if (client) {
+    const { error: houseErr } = await client.from('households').insert({
+      id: newHouseholdId,
+      name: cleanName,
+      invite_code: inviteCode,
+      created_by: current?.id || null,
+      updated_at: new Date().toISOString()
+    });
+    if (houseErr) throw new Error(houseErr.message);
+
+    if (current?.id) {
+      await client
+        .from('household_members')
+        .update({ is_default: false })
+        .eq('user_id', current.id);
+    }
+
+    await client.from('household_members').insert({
+      id: `member-${userId.substring(0, 8)}-${newHouseholdId.substring(0, 6)}`,
+      household_id: newHouseholdId,
+      user_id: current?.id || null,
+      name: current ? current.email.split('@')[0] : 'Eu',
+      is_default: true
+    });
+  }
+
+  const newSession: UserSession = {
+    email: userEmail,
+    id: userId,
+    householdId: newHouseholdId,
+    householdName: cleanName,
+    inviteCode,
+    isOwner: true
+  };
+
+  saveCurrentSession(newSession);
+
+  const known = getSavedConnectedHouseholds().map((h) => ({ ...h, isCurrent: false }));
+  known.push({
+    id: newHouseholdId,
+    name: cleanName,
+    inviteCode,
+    isOwner: true,
+    isCurrent: true
+  });
+  saveConnectedHouseholds(known);
+
+  await clearSeedData();
+  await pullFreshHouseholdData(newHouseholdId);
+  setupRealtimeSubscriptions();
+
+  return newSession;
+}
+
+/**
+ * Remove a member from the active household (Owner only permission)
+ */
+export async function removeHouseholdMember(memberId: string): Promise<void> {
+  const current = getCurrentSession();
+  if (!current) throw new Error('Sessão expirada.');
+
+  const client = getSupabaseClient();
+  if (client) {
+    const { error } = await client
+      .from('household_members')
+      .delete()
+      .eq('id', memberId)
+      .eq('household_id', current.householdId);
+    if (error) {
+      console.warn('Erro ao remover membro no Supabase:', error.message);
+    }
+  }
+
+  await db.householdMembers.delete(memberId);
+  unmarkIdsSynced(current.householdId, [memberId]);
+  localBroadcast?.postMessage({ type: 'MEMBER_DELETE', id: memberId });
+  notifyStatusChange();
+}
+
+/**
+ * Leave a connected household (disconnect self from a joined house)
+ */
+export async function leaveHousehold(householdId: string): Promise<UserSession | null> {
+  const current = getCurrentSession();
+  if (!current) return null;
+
+  const client = getSupabaseClient();
+  if (client && current.id) {
+    await client
+      .from('household_members')
+      .delete()
+      .eq('user_id', current.id)
+      .eq('household_id', householdId);
+  }
+
+  let known = getSavedConnectedHouseholds().filter((h) => h.id !== householdId);
+  saveConnectedHouseholds(known);
+
+  if (current.householdId === householdId) {
+    if (known.length > 0) {
+      return await switchHousehold(known[0].id);
+    } else {
+      return await createAdditionalHousehold(`Casa de ${current.email.split('@')[0]}`);
+    }
+  }
+
+  return current;
 }
 
 /**
@@ -495,7 +871,8 @@ export async function pullFreshHouseholdData(householdId: string): Promise<void>
       { data: remoteReminders, error: remErr },
       { data: remoteReceipts, error: rcErr },
       { data: remotePriceRecords, error: prErr },
-      { data: remoteMembers, error: memErr }
+      { data: remoteMembers, error: memErr },
+      { data: remoteHouseData }
     ] = await Promise.all([
       client.from('products').select('*').eq('household_id', householdId),
       client.from('shopping_lists').select('*').eq('household_id', householdId),
@@ -503,7 +880,8 @@ export async function pullFreshHouseholdData(householdId: string): Promise<void>
       client.from('reminders').select('*').eq('household_id', householdId),
       client.from('receipts').select('*').eq('household_id', householdId),
       client.from('price_records').select('*').eq('household_id', householdId),
-      client.from('household_members').select('*').eq('household_id', householdId)
+      client.from('household_members').select('*').eq('household_id', householdId),
+      client.from('households').select('id, name, created_by').eq('id', householdId).maybeSingle()
     ]);
 
     if (prodErr || listErr || itemErr || remErr || rcErr || prErr || memErr) {
@@ -663,12 +1041,18 @@ export async function pullFreshHouseholdData(householdId: string): Promise<void>
         if (remoteMembers?.length) {
           const members: HouseholdMember[] = remoteMembers.map((m: any) => {
             freshSyncedIds.add(m.id);
+            const isOwner = remoteHouseData?.created_by
+              ? m.user_id === remoteHouseData.created_by
+              : Boolean(m.is_default);
             return {
               id: m.id,
               name: m.name,
               color: m.color || '#10b981',
               avatarEmoji: m.avatar_emoji || '👤',
-              isDefault: Boolean(m.is_default)
+              isDefault: Boolean(m.is_default),
+              userId: m.user_id || undefined,
+              role: isOwner ? 'owner' : 'member',
+              createdAt: m.created_at
             };
           });
           await db.householdMembers.bulkPut(members);
@@ -720,7 +1104,8 @@ export async function triggerFullSync(): Promise<boolean> {
       { data: remoteReminders, error: remErr },
       { data: remoteReceipts, error: rcErr },
       { data: remotePriceRecords, error: prErr },
-      { data: remoteMembers, error: memErr }
+      { data: remoteMembers, error: memErr },
+      { data: remoteHouseData }
     ] = await Promise.all([
       client.from('products').select('*').eq('household_id', householdId),
       client.from('shopping_lists').select('*').eq('household_id', householdId),
@@ -728,7 +1113,8 @@ export async function triggerFullSync(): Promise<boolean> {
       client.from('reminders').select('*').eq('household_id', householdId),
       client.from('receipts').select('*').eq('household_id', householdId),
       client.from('price_records').select('*').eq('household_id', householdId),
-      client.from('household_members').select('*').eq('household_id', householdId)
+      client.from('household_members').select('*').eq('household_id', householdId),
+      client.from('households').select('id, name, created_by').eq('id', householdId).maybeSingle()
     ]);
 
     if (prodErr || listErr || itemErr || remErr || rcErr || prErr || memErr) {
@@ -1271,6 +1657,12 @@ export function setupRealtimeSubscriptions(): void {
         await db.products.put(data);
       } else if (type === 'PRODUCT_DELETE' && id) {
         await db.products.delete(id);
+      } else if (type === 'MEMBER_CHANGE' && data) {
+        await db.householdMembers.put(data);
+        notifyStatusChange();
+      } else if (type === 'MEMBER_DELETE' && id) {
+        await db.householdMembers.delete(id);
+        notifyStatusChange();
       }
     };
   }
@@ -1510,6 +1902,37 @@ export function setupRealtimeSubscriptions(): void {
           if (payload.old?.id) {
             unmarkIdsSynced(householdId, [payload.old.id]);
             await db.products.delete(payload.old.id);
+          }
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'household_members',
+        filter: `household_id=eq.${householdId}`
+      },
+      async (payload) => {
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const m = payload.new as any;
+          markIdsSynced(householdId, [m.id]);
+          await db.householdMembers.put({
+            id: m.id,
+            name: m.name,
+            color: m.color || '#10b981',
+            avatarEmoji: m.avatar_emoji || '👤',
+            isDefault: Boolean(m.is_default),
+            userId: m.user_id || undefined,
+            createdAt: m.created_at
+          });
+          notifyStatusChange();
+        } else if (payload.eventType === 'DELETE') {
+          if (payload.old?.id) {
+            unmarkIdsSynced(householdId, [payload.old.id]);
+            await db.householdMembers.delete(payload.old.id);
+            notifyStatusChange();
           }
         }
       }
