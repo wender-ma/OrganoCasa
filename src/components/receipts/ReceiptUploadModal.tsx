@@ -232,7 +232,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   const handleLoadDemoReceiptGO = () => {
     const demoData: ParsedReceiptData = {
       storeName: 'Hipermercado Goiás Alimentos (Goiânia - GO)',
-      accessKey: '52240901234567000199650010001234561001234567',
+      accessKey: '52240901234567000199650010001234561001234564',
       totalAmount: 142.30,
       purchaseDate: new Date().toISOString(),
       rawType: 'qr_code',
@@ -292,7 +292,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   const handleLoadDemoReceipt = () => {
     const demoData: ParsedReceiptData = {
       storeName: 'Supermercado Central Gourmet',
-      accessKey: '35260812345678000199650010001234561001234567',
+      accessKey: '35260812345678000199650010001234561001234563',
       totalAmount: 118.90,
       purchaseDate: new Date().toISOString(),
       rawType: 'qr_code',
@@ -569,7 +569,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                           inputMode="numeric"
                           value={accessKeyInput}
                           onChange={(e) => handleKeyInputChange(e.target.value)}
-                          placeholder="5226 0906 0572 2303 4408 6502 8000 1062 9392 8017 1666"
+                          placeholder="5226 0945 5439 1502 7896 6507 9000 0946 1011 2410 8858"
                           className="w-full pl-3.5 pr-20 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono tracking-wide focus:ring-2 focus:ring-emerald-500"
                         />
                         <button
@@ -626,6 +626,12 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                             </strong>
                           </div>
                         </div>
+                        {keyInspection.digitsCount === 44 && keyInspection.errorReason && (
+                          <div className="p-2.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-800 dark:text-amber-300 text-[11px] flex items-start space-x-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                            <span>{keyInspection.errorReason}</span>
+                          </div>
+                        )}
                       </div>
                     )}
 

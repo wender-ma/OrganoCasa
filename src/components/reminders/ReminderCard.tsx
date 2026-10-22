@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Calendar, Trash2, Plus } from 'lucide-react';
+import { Check, Calendar, Trash2, Plus, Edit2 } from 'lucide-react';
 import { Reminder, HouseholdMember } from '../../types';
 
 interface ReminderCardProps {
@@ -8,6 +8,7 @@ interface ReminderCardProps {
   onToggleCompleted: (id: string) => void;
   onToggleCheckItem: (reminderId: string, checkItemId: string) => void;
   onAddCheckItem: (reminderId: string, text: string) => void;
+  onEdit?: (reminder: Reminder) => void;
   onDelete: (id: string) => void;
 }
 
@@ -17,6 +18,7 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
   onToggleCompleted,
   onToggleCheckItem,
   onAddCheckItem,
+  onEdit,
   onDelete
 }) => {
   const [quickInput, setQuickInput] = useState('');
@@ -45,7 +47,7 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
           : 'bg-white dark:bg-slate-850 border-slate-200/80 dark:border-slate-750 shadow-xs hover:shadow-md'
       }`}
     >
-      {/* Top Row: Main Status Checkbox, Title, Member & Delete */}
+      {/* Top Row: Main Status Checkbox, Title, Member & Actions */}
       <div className="flex items-start justify-between space-x-3">
         <div className="flex items-start space-x-3 flex-1 min-w-0">
           <button
@@ -78,14 +80,25 @@ export const ReminderCard: React.FC<ReminderCardProps> = ({
           </div>
         </div>
 
-        {/* Delete */}
-        <button
-          onClick={() => onDelete(reminder.id)}
-          className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-          title="Excluir lembrete"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        {/* Edit & Delete */}
+        <div className="flex items-center space-x-0.5 shrink-0">
+          {onEdit && (
+            <button
+              onClick={() => onEdit(reminder)}
+              className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Editar lembrete"
+            >
+              <Edit2 className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={() => onDelete(reminder.id)}
+            className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+            title="Excluir lembrete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Checklist Sub-items */}

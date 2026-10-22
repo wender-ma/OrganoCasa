@@ -25,7 +25,11 @@
 }
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -36,8 +40,6 @@ body {
   background-color: #f8fafc;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background-color: #090d16;
-  }
+html.dark body {
+  background-color: #020617;
 }

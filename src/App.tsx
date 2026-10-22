@@ -8,7 +8,7 @@ import { ReceiptHistoryView } from './components/receipts/ReceiptHistoryView';
 import { ReceiptUploadModal } from './components/receipts/ReceiptUploadModal';
 import { ReconciliationModal } from './components/receipts/ReconciliationModal';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
-import { useShoppingList } from './hooks/useShoppingList';
+import { useShoppingList, ShoppingListProvider } from './hooks/useShoppingList';
 import { useReminders } from './hooks/useReminders';
 import { useReceipts } from './hooks/useReceipts';
 import { seedDatabase } from './db/seed';
@@ -16,7 +16,7 @@ import { ParsedReceiptData } from './services/receiptParser';
 import { ReconciliationItem } from './types';
 import { triggerFullSync, setupRealtimeSubscriptions } from './services/supabaseSync';
 
-export const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const isOnline = useOnlineStatus();
 
   const {
@@ -49,6 +49,25 @@ export const App: React.FC = () => {
       // Not logged in: wipe demo items so the app is completely empty
       seedDatabase().catch(console.warn);
     }
+
+    // Handle PWA shortcut query parameters (?action=scan, ?tab=reminders)
+    if (typeof window !== 'undefined' && window.location.search) {
+      const params = new URLSearchParams(window.location.search);
+      const action = params.get('action');
+      const tab = params.get('tab');
+
+      if (action === 'scan') {
+        setIsReceiptUploadOpen(true);
+      }
+
+      if (tab === 'shopping' || tab === 'reminders' || tab === 'products' || tab === 'receipts') {
+        setActiveTab(tab);
+      }
+
+      if (action || tab) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
   }, []);
 
   const handleReceiptParsed = async (data: ParsedReceiptData) => {
@@ -69,7 +88,7 @@ export const App: React.FC = () => {
     receiptData: ParsedReceiptData,
     finalItems: ReconciliationItem[]
   ) => {
-    await applyReconciliation(receiptData, finalItems);
+    await applyReconciliation(receiptData, finalItems, activeList?.id);
   };
 
   const pendingRemindersCount = reminders.filter((r) => !r.isCompleted).length;
@@ -127,5 +146,11 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+export const App: React.FC = () => (
+  <ShoppingListProvider>
+    <AppContent />
+  </ShoppingListProvider>
+);
 
 export default App;

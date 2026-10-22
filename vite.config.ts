@@ -49,6 +49,18 @@ export default defineConfig({
     host: true,
     port: 5173
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          supabase: ['@supabase/supabase-js'],
+          db: ['dexie', 'dexie-react-hooks'],
+          scanner: ['jsqr']
+        }
+      }
+    }
+  },
   plugins: [
     react(),
     sefazApiPlugin(),

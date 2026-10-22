@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   Users,
   RefreshCw,
-  Bell
+  Bell,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { ShoppingList } from '../../types';
 import { HouseholdModal } from '../collaboration/HouseholdModal';
@@ -22,6 +24,16 @@ import {
   triggerFullSync
 } from '../../services/supabaseSync';
 import { APP_VERSION } from '../../version';
+
+const THEME_STORAGE_KEY = 'organocasa_theme';
+
+function resolveInitialDarkMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === 'dark') return true;
+  if (saved === 'light') return false;
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
 
 interface HeaderProps {
   activeList?: ShoppingList;
@@ -46,6 +58,36 @@ export const Header: React.FC<HeaderProps> = ({
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState(getNotificationPermission());
   const [syncStatus, setSyncStatus] = useState(getSyncStatus());
+  const [isDark, setIsDark] = useState<boolean>(resolveInitialDarkMode);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('dark', isDark);
+    }
+  }, [isDark]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      const saved = localStorage.getItem(THEME_STORAGE_KEY);
+      if (!saved) {
+        setIsDark(e.matches);
+      }
+    };
+    mq.addEventListener('change', handleChange);
+    return () => mq.removeEventListener('change', handleChange);
+  }, []);
+
+  const handleToggleTheme = () => {
+    setIsDark((prev) => {
+      const next = !prev;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light');
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setNotificationPermission(getNotificationPermission());
@@ -142,8 +184,19 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Right side: Manual Cloud Sync + Family Account + Offline badge */}
+        {/* Right side: Theme Toggle + Manual Cloud Sync + Family Account + Offline badge */}
         <div className="flex items-center space-x-1.5">
+          {/* Theme Toggle Button */}
+          <button
+            type="button"
+            onClick={handleToggleTheme}
+            className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:text-slate-400 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/50 rounded-xl transition-colors"
+            title={isDark ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
+            aria-label={isDark ? 'Alternar para Modo Claro' : 'Alternar para Modo Escuro'}
+          >
+            {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+          </button>
+
           {/* Manual Cloud Sync Button */}
           <button
             onClick={handleManualSync}

@@ -63,6 +63,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   onConfirm
 }) => {
   const [items, setItems] = useState<ReconciliationItem[]>(initialItems);
+  const [overrideTotalAmount, setOverrideTotalAmount] = useState<number | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [showPostAlert, setShowPostAlert] = useState(false);
   const [unboughtForAlert, setUnboughtForAlert] = useState<ReconciliationItem[]>([]);
@@ -94,6 +95,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   React.useEffect(() => {
     if (isOpen) {
       setItems(initialItems);
+      setOverrideTotalAmount(null);
     }
   }, [isOpen, receiptData?.accessKey, receiptData?.purchaseDate]);
 
@@ -215,8 +217,8 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
         return;
       }
 
-      if (parsed.totalAmount > 0 && receiptData) {
-        receiptData.totalAmount = parsed.totalAmount;
+      if (parsed.totalAmount > 0) {
+        setOverrideTotalAmount(parsed.totalAmount);
       }
 
       const generated = await generateReconciliation(parsed.items, listItems);
@@ -241,8 +243,8 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
       });
 
       if (parsed.items.length > 0) {
-        if (parsed.totalAmount > 0 && receiptData) {
-          receiptData.totalAmount = parsed.totalAmount;
+        if (parsed.totalAmount > 0) {
+          setOverrideTotalAmount(parsed.totalAmount);
         }
         const generated = await generateReconciliation(parsed.items, listItems);
         setItems(generated);
@@ -259,12 +261,14 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
     }
   };
 
+  const effectiveReceiptTotal = overrideTotalAmount ?? receiptData.totalAmount;
+
   const handleFinalConfirm = async () => {
     setIsApplying(true);
     try {
       const updatedReceiptData: ParsedReceiptData = {
         ...receiptData,
-        totalAmount: totalCalculated > 0 ? Number(totalCalculated.toFixed(2)) : receiptData.totalAmount
+        totalAmount: totalCalculated > 0 ? Number(totalCalculated.toFixed(2)) : effectiveReceiptTotal
       };
       await onConfirm(updatedReceiptData, items);
 
@@ -346,7 +350,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
             <div className="p-2 bg-white dark:bg-slate-800 rounded-xl">
               <span className="text-slate-400 block text-[10px]">Total Calculado</span>
               <strong className="text-emerald-600 dark:text-emerald-400 block">
-                R$ {totalCalculated > 0 ? totalCalculated.toFixed(2) : receiptData.totalAmount.toFixed(2)}
+                R$ {totalCalculated > 0 ? totalCalculated.toFixed(2) : effectiveReceiptTotal.toFixed(2)}
               </strong>
             </div>
           </div>

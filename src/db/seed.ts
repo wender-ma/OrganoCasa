@@ -366,9 +366,21 @@ export const INITIAL_PRODUCTS: Array<{
 
 export async function clearSeedData() {
   try {
+    const seedProductIds = new Set(INITIAL_PRODUCTS.map((p) => p.product.id));
+    const seedHistoryIds = new Set(
+      INITIAL_PRODUCTS.flatMap((p) => p.history.map((h) => h.id))
+    );
+
     await db.transaction(
       'rw',
-      [db.shoppingListItems, db.shoppingLists, db.reminders, db.products, db.priceRecords],
+      [
+        db.shoppingListItems,
+        db.shoppingLists,
+        db.reminders,
+        db.products,
+        db.priceRecords,
+        db.householdMembers
+      ],
       async () => {
         await db.shoppingListItems
           .filter(
@@ -383,7 +395,7 @@ export async function clearSeedData() {
           )
           .delete();
         await db.shoppingLists
-          .filter((l) => l.createdAt === SEED_TIMESTAMP || l.id === 'list-default')
+          .filter((l) => l.createdAt === SEED_TIMESTAMP || l.id.startsWith('seed-'))
           .delete();
         await db.reminders
           .filter(
@@ -398,8 +410,24 @@ export async function clearSeedData() {
           .filter(
             (p) =>
               p.createdAt === SEED_TIMESTAMP ||
-              p.id.startsWith('prod-arroz-5kg') ||
-              p.id.startsWith('prod-feijao-1kg')
+              p.id.startsWith('seed-') ||
+              seedProductIds.has(p.id)
+          )
+          .delete();
+        await db.priceRecords
+          .filter(
+            (pr) =>
+              pr.id.startsWith('seed-') ||
+              seedHistoryIds.has(pr.id) ||
+              pr.date.startsWith('2020-01-01')
+          )
+          .delete();
+        await db.householdMembers
+          .filter(
+            (m) =>
+              m.id.startsWith('seed-') ||
+              m.id === 'member-1' ||
+              m.id === 'member-2'
           )
           .delete();
       }

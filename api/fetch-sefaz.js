@@ -159,6 +159,33 @@ function parseSefazHtml(html, fallbackKey) {
   };
 }
 
+/**
+ * Anti-SSRF Validation: Only official Brazilian government portals (*.gov.br) are allowed
+ */
+function isAllowedSefazUrl(rawUrlString) {
+  if (!rawUrlString || typeof rawUrlString !== 'string') return false;
+  try {
+    let normalized = rawUrlString.trim();
+    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+      normalized = 'https://' + normalized;
+    }
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (parsed.username || parsed.password) {
+      return false;
+    }
+    if (parsed.port && parsed.port !== '80' && parsed.port !== '443') {
+      return false;
+    }
+    const host = parsed.hostname.toLowerCase();
+    return host.endsWith('.gov.br') && host.length > 7;
+  } catch {
+    return false;
+  }
+}
+
 async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -190,7 +217,18 @@ async function handler(req, res) {
     let accessKey = '';
 
     if (rawUrl && typeof rawUrl === 'string') {
-      targetUrl = rawUrl.trim();
+      const trimmedUrl = rawUrl.trim();
+      if (!isAllowedSefazUrl(trimmedUrl)) {
+        res.status(400).json({
+          success: false,
+          error: 'Domínio não autorizado. Apenas portais oficiais da SEFAZ (.gov.br) são permitidos.'
+        });
+        return;
+      }
+      targetUrl =
+        trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')
+          ? trimmedUrl
+          : `https://${trimmedUrl}`;
       const match = targetUrl.match(/\b(\d{44})\b/);
       if (match) {
         accessKey = match[1];
@@ -385,4 +423,5 @@ async function handler(req, res) {
 module.exports = handler;
 module.exports.default = handler;
 module.exports.parseSefazHtml = parseSefazHtml;
+module.exports.isAllowedSefazUrl = isAllowedSefazUrl;
 

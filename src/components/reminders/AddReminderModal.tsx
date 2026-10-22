@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { X, Plus, Trash2, CheckSquare, Calendar, User, Tag } from 'lucide-react';
-import { HouseholdMember } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { X, Plus, Trash2, CheckSquare, Calendar, User, Tag, Save } from 'lucide-react';
+import { HouseholdMember, Reminder, ReminderCheckItem } from '../../types';
 
 interface AddReminderModalProps {
   isOpen: boolean;
   members: HouseholdMember[];
+  editingReminder?: Reminder | null;
   onClose: () => void;
   onAddReminder: (data: {
     title: string;
@@ -14,13 +15,16 @@ interface AddReminderModalProps {
     dueDate?: string;
     category?: string;
   }) => Promise<any>;
+  onUpdateReminder?: (id: string, changes: Partial<Reminder>) => Promise<void>;
 }
 
 export const AddReminderModal: React.FC<AddReminderModalProps> = ({
   isOpen,
   members,
+  editingReminder,
   onClose,
-  onAddReminder
+  onAddReminder,
+  onUpdateReminder
 }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -28,19 +32,43 @@ export const AddReminderModal: React.FC<AddReminderModalProps> = ({
   const [dueDate, setDueDate] = useState('');
   const [category, setCategory] = useState('Casa');
 
-  // Checklist items
-  const [checklist, setChecklist] = useState<string[]>(['']);
+  // Checklist items (always non-empty strings so render index matches state index)
+  const [checklist, setChecklist] = useState<string[]>([]);
   const [currentCheckInput, setCurrentCheckInput] = useState('');
+
+  useEffect(() => {
+    if (editingReminder) {
+      setTitle(editingReminder.title || '');
+      setDescription(editingReminder.description || '');
+      setAssignedMemberId(editingReminder.assignedMemberId || '');
+      setDueDate(editingReminder.dueDate || '');
+      setCategory(editingReminder.category || 'Casa');
+      setChecklist(
+        editingReminder.checklist
+          .map((c) => c.text.trim())
+          .filter((t) => t.length > 0)
+      );
+      setCurrentCheckInput('');
+    } else if (isOpen) {
+      setTitle('');
+      setDescription('');
+      setAssignedMemberId(members[0]?.id || '');
+      setDueDate('');
+      setCategory('Casa');
+      setChecklist([]);
+      setCurrentCheckInput('');
+    }
+  }, [editingReminder, isOpen, members]);
 
   const handleAddChecklistItem = () => {
     if (currentCheckInput.trim()) {
-      setChecklist([...checklist.filter((c) => c.trim().length > 0), currentCheckInput.trim()]);
+      setChecklist((prev) => [...prev.filter((c) => c.trim().length > 0), currentCheckInput.trim()]);
       setCurrentCheckInput('');
     }
   };
 
   const handleRemoveChecklistItem = (index: number) => {
-    setChecklist(checklist.filter((_, i) => i !== index));
+    setChecklist((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,18 +79,51 @@ export const AddReminderModal: React.FC<AddReminderModalProps> = ({
       .map((c) => c.trim())
       .filter((c) => c.length > 0);
 
-    await onAddReminder({
-      title: title.trim(),
-      description: description.trim() || undefined,
-      assignedMemberId: assignedMemberId || undefined,
-      checklist: validChecklist,
-      dueDate: dueDate || undefined,
-      category: category || 'Geral'
-    });
+    if (editingReminder && onUpdateReminder) {
+      const usedExistingIds = new Set<string>();
+      const updatedChecklist: ReminderCheckItem[] = validChecklist.map((text, idx) => {
+        const existing = editingReminder.checklist.find(
+          (c) => c.text.trim() === text && !usedExistingIds.has(c.id)
+        );
+        if (existing) {
+          usedExistingIds.add(existing.id);
+          return { ...existing, text };
+        }
+        return {
+          id: `chk-${Date.now()}-${idx}`,
+          text,
+          isDone: false
+        };
+      });
+
+      const isCompleted =
+        updatedChecklist.length > 0
+          ? updatedChecklist.every((c) => c.isDone)
+          : editingReminder.isCompleted;
+
+      await onUpdateReminder(editingReminder.id, {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        assignedMemberId: assignedMemberId || undefined,
+        checklist: updatedChecklist,
+        isCompleted,
+        dueDate: dueDate || undefined,
+        category: category || 'Geral'
+      });
+    } else {
+      await onAddReminder({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        assignedMemberId: assignedMemberId || undefined,
+        checklist: validChecklist,
+        dueDate: dueDate || undefined,
+        category: category || 'Geral'
+      });
+    }
 
     setTitle('');
     setDescription('');
-    setChecklist(['']);
+    setChecklist([]);
     setCurrentCheckInput('');
     setDueDate('');
     onClose();
@@ -80,7 +141,7 @@ export const AddReminderModal: React.FC<AddReminderModalProps> = ({
               <CheckSquare className="w-5 h-5" />
             </div>
             <h3 className="font-bold text-slate-900 dark:text-white text-base">
-              Novo Lembrete / Tarefa da Casa
+              {editingReminder ? 'Editar Lembrete / Tarefa' : 'Novo Lembrete / Tarefa da Casa'}
             </h3>
           </div>
           <button
@@ -116,30 +177,28 @@ export const AddReminderModal: React.FC<AddReminderModalProps> = ({
             </label>
 
             {/* Existing added checklist items */}
-            {checklist.filter((c) => c.trim().length > 0).length > 0 && (
+            {checklist.length > 0 && (
               <div className="space-y-1.5 mb-2">
-                {checklist
-                  .filter((c) => c.trim().length > 0)
-                  .map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        <span className="text-slate-800 dark:text-slate-200 font-medium">
-                          {item}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveChecklistItem(idx)}
-                        className="text-slate-400 hover:text-rose-500 p-1 rounded-md"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                {checklist.map((item, idx) => (
+                  <div
+                    key={`${item}-${idx}`}
+                    className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span className="text-slate-800 dark:text-slate-200 font-medium">
+                        {item}
+                      </span>
                     </div>
-                  ))}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveChecklistItem(idx)}
+                      className="text-slate-400 hover:text-rose-500 p-1 rounded-md"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -234,8 +293,8 @@ export const AddReminderModal: React.FC<AddReminderModalProps> = ({
               disabled={!title.trim()}
               className="px-5 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-md flex items-center space-x-1.5"
             >
-              <Plus className="w-4 h-4" />
-              <span>Criar Lembrete</span>
+              {editingReminder ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              <span>{editingReminder ? 'Salvar Alterações' : 'Criar Lembrete'}</span>
             </button>
           </div>
         </form>

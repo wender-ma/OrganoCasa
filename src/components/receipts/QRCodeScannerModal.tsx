@@ -161,13 +161,13 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           {scannerState === 'scanning' && !scannedCode && (
             <div className="absolute inset-4 pointer-events-none flex flex-col justify-between p-1 z-10">
               <div className="flex justify-between">
-                <div className="w-8 h-8 border-t-3 border-l-3 border-emerald-400 rounded-tl-xl" />
-                <div className="w-8 h-8 border-t-3 border-r-3 border-emerald-400 rounded-tr-xl" />
+                <div className="w-8 h-8 border-t-[3px] border-l-[3px] border-emerald-400 rounded-tl-xl" />
+                <div className="w-8 h-8 border-t-[3px] border-r-[3px] border-emerald-400 rounded-tr-xl" />
               </div>
               <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#10b981] animate-pulse" />
               <div className="flex justify-between">
-                <div className="w-8 h-8 border-b-3 border-l-3 border-emerald-400 rounded-bl-xl" />
-                <div className="w-8 h-8 border-b-3 border-r-3 border-emerald-400 rounded-br-xl" />
+                <div className="w-8 h-8 border-b-[3px] border-l-[3px] border-emerald-400 rounded-bl-xl" />
+                <div className="w-8 h-8 border-b-[3px] border-r-[3px] border-emerald-400 rounded-br-xl" />
               </div>
             </div>
           )}

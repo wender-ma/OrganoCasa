@@ -225,8 +225,35 @@ export function formatAccessKey(rawKey: string): string {
   return parts.join(' ');
 }
 
+export function calculateAccessKeyCheckDigit(digits43: string): number {
+  const clean = digits43.replace(/\D/g, '').slice(0, 43);
+  if (clean.length !== 43) return -1;
+
+  let sum = 0;
+  let weight = 2;
+  for (let i = 42; i >= 0; i--) {
+    sum += parseInt(clean[i], 10) * weight;
+    weight = weight === 9 ? 2 : weight + 1;
+  }
+  const remainder = sum % 11;
+  return remainder === 0 || remainder === 1 ? 0 : 11 - remainder;
+}
+
+export function validateAccessKeyMod11(rawKey: string): boolean {
+  const digits = rawKey.replace(/\D/g, '');
+  if (digits.length !== 44) return false;
+  if (/^(\d)\1{43}$/.test(digits)) return false;
+
+  const expectedDv = calculateAccessKeyCheckDigit(digits.slice(0, 43));
+  const actualDv = parseInt(digits[43], 10);
+  return expectedDv >= 0 && actualDv === expectedDv;
+}
+
 export interface KeyInspection {
   isValid: boolean;
+  checkDigitValid?: boolean;
+  expectedCheckDigit?: number;
+  errorReason?: string;
   rawDigits: string;
   formatted: string;
   digitsCount: number;
@@ -270,8 +297,25 @@ export function inspectAccessKey(rawInput: string): KeyInspection {
   const modelLabel =
     modelCode === '65' ? 'NFC-e (Consumidor)' : modelCode === '55' ? 'NF-e (Mercadoria)' : `Modelo ${modelCode}`;
 
+  const expectedCheckDigit = calculateAccessKeyCheckDigit(digits.slice(0, 43));
+  const checkDigitValid = validateAccessKeyMod11(digits);
+  const validMonth = emissionMonth >= 1 && emissionMonth <= 12;
+  const validUf = Boolean(UF_CODES[ufCode]);
+
+  let errorReason: string | undefined;
+  if (!validUf) {
+    errorReason = `Código de UF inválido (${ufCode}).`;
+  } else if (!validMonth) {
+    errorReason = `Mês de emissão inválido (${mm}).`;
+  } else if (!checkDigitValid) {
+    errorReason = `Dígito verificador inválido (Módulo 11: esperado ${expectedCheckDigit} no último dígito). Verifique se digitou algum número errado.`;
+  }
+
   return {
-    isValid: true,
+    isValid: validUf && validMonth && checkDigitValid,
+    checkDigitValid,
+    expectedCheckDigit,
+    errorReason,
     rawDigits: digits,
     formatted,
     digitsCount,
@@ -286,4 +330,5 @@ export function inspectAccessKey(rawInput: string): KeyInspection {
     number: isNaN(nNF) ? undefined : nNF
   };
 }
+
 

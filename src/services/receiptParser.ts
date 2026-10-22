@@ -1,6 +1,7 @@
 import { ProductCategory, ReceiptItem } from '../types';
-import { createWorker } from 'tesseract.js';
-import { classifyScannedCode, parseNfceQrParams } from './nfceClassifier';
+import { classifyScannedCode, parseNfceQrParams, inspectAccessKey } from './nfceClassifier';
+import { fetchProductByBarcode } from './openFoodFacts';
+import { db } from '../db/dexie';
 
 export interface ParsedReceiptData {
   storeName: string;
@@ -186,20 +187,62 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
 
   // 1. Se for código de barras de produto puro (EAN-13, EAN-8)
   if (classified.type === 'barcode_ean') {
+    const barcode = classified.barcode || trimmed;
+    let productName = `PRODUTO (EAN: ${barcode})`;
+    let unit = 'un';
+    let unitPrice = 0;
+    let brand: string | undefined;
+    let category: ProductCategory | undefined;
+    let imageUrl: string | undefined;
+
+    // 1a. Consulta catálogo local primeiro
+    try {
+      const localProd = await db.products.where('barcode').equals(barcode).first();
+      if (localProd) {
+        productName = localProd.name;
+        unit = localProd.unit || 'un';
+        unitPrice = localProd.lastPrice || localProd.averagePrice || 0;
+        brand = localProd.brand;
+        category = localProd.category;
+        imageUrl = localProd.imageUrl;
+      }
+    } catch {
+      // Ignora erro caso IndexedDB não esteja disponível
+    }
+
+    // 1b. Se não encontrou nome no catálogo local, consulta OpenFoodFacts
+    if (productName.startsWith('PRODUTO (EAN:')) {
+      try {
+        const offProd = await fetchProductByBarcode(barcode);
+        if (offProd && offProd.product_name) {
+          brand = offProd.brands ? offProd.brands.split(',')[0].trim() : undefined;
+          productName = brand ? `${offProd.product_name} (${brand})` : offProd.product_name;
+          unit = offProd.unit || unit;
+          category = offProd.category;
+          imageUrl = offProd.image_url;
+        }
+      } catch {
+        // Fallback silencioso para o código EAN bruto
+      }
+    }
+
     return {
       storeName: 'Produto com Código de Barras',
-      totalAmount: 0,
+      totalAmount: unitPrice,
       purchaseDate: new Date().toISOString(),
       rawType: 'qr_code',
       items: [
         {
           id: `ean-item-${Date.now()}`,
-          name: `PRODUTO (EAN: ${classified.barcode})`,
-          barcode: classified.barcode,
+          name: productName,
+          barcode,
+          brand,
+          category,
+          imageUrl,
           quantity: 1,
-          unitPrice: 0,
-          totalPrice: 0,
-          unit: 'un'
+          unitPrice,
+          totalPrice: unitPrice,
+          unit
         }
       ]
     };
@@ -213,6 +256,15 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
   // 3. Se for NFC-e, usa os metadados extraídos
   const meta = classified.metadata;
   const accessKey = meta.accessKey;
+
+  // Validate raw 44-digit access key (Modulo 11, UF, month)
+  if (!meta.rawUrl && accessKey) {
+    const inspection = inspectAccessKey(accessKey);
+    if (!inspection.isValid) {
+      throw new Error(inspection.errorReason || 'Chave de acesso de 44 dígitos inválida.');
+    }
+  }
+
   const totalAmount = meta.totalAmount || 0;
   let storeName = meta.stateName ? `Supermercado (SEFAZ - ${meta.stateName})` : 'Supermercado (NFC-e)';
   const purchaseDate = meta.emissionDate || new Date().toISOString();
@@ -347,6 +399,7 @@ export async function parseReceiptImage(
   let worker: any = null;
   try {
     onProgress?.(10, 'Carregando motor OCR...');
+    const { createWorker } = await import('tesseract.js');
     worker = await createWorker('por');
 
     onProgress?.(30, 'Processando imagem do cupom...');

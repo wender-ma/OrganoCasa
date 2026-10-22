@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Save, Image as ImageIcon, Camera, Award, Check } from 'lucide-react';
 import { ProductCategory, ProductUnit, ShoppingListItem } from '../../types';
 import { INITIAL_CATEGORIES, CATEGORY_ICONS } from '../../db/seed';
+import { compressImageFile } from '../../utils/imageCompressor';
 
 interface EditItemModalProps {
   isOpen: boolean;
@@ -41,16 +42,15 @@ export const EditItemModal: React.FC<EditItemModalProps> = ({
     }
   }, [item]);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        if (uploadEvent.target?.result) {
-          setImageUrl(uploadEvent.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageFile(file, 400, 0.75);
+        setImageUrl(compressed);
+      } catch (err) {
+        console.warn('Falha ao comprimir imagem:', err);
+      }
     }
   };
 

@@ -102,6 +102,9 @@ export interface ReceiptItem {
   id?: string;
   name: string;
   barcode?: string;
+  brand?: string;
+  category?: ProductCategory;
+  imageUrl?: string;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -126,6 +129,7 @@ export interface ReconciliationItem {
   id: string;
   status: ReconciliationStatus;
   name: string;
+  barcode?: string;
   category: ProductCategory;
   brand?: string;
   alternativeBrands?: string[];

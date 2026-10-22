@@ -236,7 +236,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 Lembretes & Tarefas
               </strong>
               <span className="text-[10px] text-slate-400">
-                Avisos no dia e horário das pendências da casa
+                Avisos no dia e horário ou quando alguém cria/conclui uma tarefa.
               </span>
             </div>
             <input
@@ -253,7 +253,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 Lista Compartilhada
               </strong>
               <span className="text-[10px] text-slate-400">
-                Quando outro membro da família adiciona produtos à lista
+                Avisa quando alguém da casa adiciona itens, marca produtos como comprados ou finaliza uma compra.
               </span>
             </div>
             <input
@@ -269,3 +269,4 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
     document.body
   );
 };
+

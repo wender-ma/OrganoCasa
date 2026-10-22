@@ -158,6 +158,12 @@ function playBeepSound() {
     osc.connect(gain);
     gain.connect(ctx.destination);
 
+    osc.onended = () => {
+      try {
+        ctx.close().catch(() => {});
+      } catch {}
+    };
+
     osc.start();
     osc.stop(ctx.currentTime + 0.16);
   } catch {
@@ -255,11 +261,13 @@ export function useQrScanner({
       ...telemetryRef.current.stateTransitions.slice(-4),
       { state: newState, timestamp: now }
     ];
+    setDebugInfo({ ...telemetryRef.current });
   }, []);
 
-  // Invariante E: Polling único a cada 500ms para transferir telemetria para o estado de exibição
+  // Invariante E: Polling único a cada 500ms para transferir telemetria para o estado de exibição (pausado fora de scanning)
   useEffect(() => {
     const interval = setInterval(() => {
+      if (scannerStateRef.current !== 'scanning') return;
       const video = videoRef.current;
       if (video) {
         telemetryRef.current.videoReadyState = video.readyState;
@@ -283,14 +291,22 @@ export function useQrScanner({
     supportsBarcodeDetector().then((supported) => {
       if (!isMounted) return;
       if (supported) {
+        const Detector = (window as any).BarcodeDetector;
         try {
-          barcodeDetectorRef.current = new (window as any).BarcodeDetector({
-            formats: ['qr_code']
+          barcodeDetectorRef.current = new Detector({
+            formats: ['qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128']
           });
           telemetryRef.current.engine = 'BarcodeDetector (Nativo)';
         } catch {
-          barcodeDetectorRef.current = null;
-          telemetryRef.current.engine = 'jsQR (Fallback CPU)';
+          try {
+            barcodeDetectorRef.current = new Detector({
+              formats: ['qr_code']
+            });
+            telemetryRef.current.engine = 'BarcodeDetector (Nativo)';
+          } catch {
+            barcodeDetectorRef.current = null;
+            telemetryRef.current.engine = 'jsQR (Fallback CPU)';
+          }
         }
       } else {
         barcodeDetectorRef.current = null;
@@ -627,14 +643,24 @@ export function useQrScanner({
     }
   }, [transitionState, logVideoEvent, processFrame]);
 
-  // 6. Trocar entre câmera traseira e frontal (Invariante F: deps [])
+  // 6. Trocar entre câmera traseira e frontal (Invariante F: sem facingMode nas deps de start)
   const switchCamera = useCallback(() => {
-    setFacingMode((prev) => {
-      const next = prev === 'environment' ? 'user' : 'environment';
-      facingModeRef.current = next;
-      return next;
-    });
-  }, []);
+    const next = facingModeRef.current === 'environment' ? 'user' : 'environment';
+    facingModeRef.current = next;
+    telemetryRef.current.facingMode = next;
+    setFacingMode(next);
+
+    if (
+      scannerStateRef.current === 'scanning' ||
+      scannerStateRef.current === 'waitingVideo' ||
+      scannerStateRef.current === 'error'
+    ) {
+      stop();
+      setTimeout(() => {
+        start();
+      }, 50);
+    }
+  }, [stop, start]);
 
   // 7. Decodificação estática a partir de arquivo de foto (galeria) (Invariante F: deps [])
   const scanImageFile = useCallback(async (file: File): Promise<string | null> => {

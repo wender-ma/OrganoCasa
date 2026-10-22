@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Users } from 'lucide-react';
+import { Reminder } from '../../types';
 import { useReminders } from '../../hooks/useReminders';
 import { ReminderCard } from './ReminderCard';
 import { AddReminderModal } from './AddReminderModal';
@@ -12,6 +13,7 @@ export const RemindersView: React.FC = () => {
     addMember,
     deleteMember,
     addReminder,
+    updateReminder,
     toggleReminderCompleted,
     toggleChecklistItem,
     addChecklistItem,
@@ -21,6 +23,7 @@ export const RemindersView: React.FC = () => {
   const [selectedMemberId, setSelectedMemberId] = useState<string | 'all'>('all');
   const [statusTab, setStatusTab] = useState<'pending' | 'completed' | 'all'>('pending');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
 
   // Filter reminders
@@ -157,6 +160,7 @@ export const RemindersView: React.FC = () => {
                 onToggleCompleted={toggleReminderCompleted}
                 onToggleCheckItem={toggleChecklistItem}
                 onAddCheckItem={addChecklistItem}
+                onEdit={(rem) => setEditingReminder(rem)}
                 onDelete={deleteReminder}
               />
             );
@@ -167,7 +171,10 @@ export const RemindersView: React.FC = () => {
       {/* FAB Add Reminder safely positioned above mobile navigation */}
       <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] right-4 sm:right-6 z-40 pointer-events-auto">
         <button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => {
+            setEditingReminder(null);
+            setIsAddModalOpen(true);
+          }}
           className="w-14 h-14 sm:w-auto sm:px-5 sm:py-3.5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-sm shadow-2xl shadow-emerald-950/50 border-2 border-white/20 flex items-center justify-center sm:space-x-2 transition-all"
           title="Novo Lembrete"
           aria-label="Novo Lembrete"
@@ -179,10 +186,15 @@ export const RemindersView: React.FC = () => {
 
       {/* Modals */}
       <AddReminderModal
-        isOpen={isAddModalOpen}
+        isOpen={isAddModalOpen || Boolean(editingReminder)}
         members={members}
-        onClose={() => setIsAddModalOpen(false)}
+        editingReminder={editingReminder}
+        onClose={() => {
+          setIsAddModalOpen(false);
+          setEditingReminder(null);
+        }}
         onAddReminder={addReminder}
+        onUpdateReminder={updateReminder}
       />
 
       <MemberManagerModal

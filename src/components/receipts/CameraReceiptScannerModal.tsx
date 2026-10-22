@@ -45,6 +45,18 @@ export const CameraReceiptScannerModal: React.FC<CameraReceiptScannerModalProps>
 
   // Multi-photo list state
   const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
+  const capturedPhotosRef = useRef<CapturedPhoto[]>([]);
+  capturedPhotosRef.current = capturedPhotos;
+
+  const revokeAllPhotos = (photos: CapturedPhoto[]) => {
+    photos.forEach((p) => {
+      if (p.previewUrl) {
+        try {
+          URL.revokeObjectURL(p.previewUrl);
+        } catch {}
+      }
+    });
+  };
 
   const stopStream = () => {
     if (streamRef.current) {
@@ -97,6 +109,7 @@ export const CameraReceiptScannerModal: React.FC<CameraReceiptScannerModalProps>
       setIsProcessing(false);
       setProgressStatus('');
       setProgressPercent(0);
+      revokeAllPhotos(capturedPhotosRef.current);
       setCapturedPhotos([]);
     }
 
@@ -104,6 +117,12 @@ export const CameraReceiptScannerModal: React.FC<CameraReceiptScannerModalProps>
       stopStream();
     };
   }, [isOpen, facingMode]);
+
+  useEffect(() => {
+    return () => {
+      revokeAllPhotos(capturedPhotosRef.current);
+    };
+  }, []);
 
   const toggleCamera = () => {
     setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
@@ -162,7 +181,15 @@ export const CameraReceiptScannerModal: React.FC<CameraReceiptScannerModalProps>
   };
 
   const handleDeletePhoto = (id: string) => {
-    setCapturedPhotos((prev) => prev.filter((p) => p.id !== id));
+    setCapturedPhotos((prev) => {
+      const target = prev.find((p) => p.id === id);
+      if (target?.previewUrl) {
+        try {
+          URL.revokeObjectURL(target.previewUrl);
+        } catch {}
+      }
+      return prev.filter((p) => p.id !== id);
+    });
   };
 
   // 3. Process all approved photos with AI / OCR
