@@ -6,6 +6,7 @@ import { CATEGORY_ICONS } from '../../db/seed';
 interface ShoppingItemCardProps {
   item: ShoppingListItem;
   product?: Product;
+  isCompleting?: boolean;
   onToggle: (id: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
   onRemove: (id: string) => void;
@@ -17,6 +18,7 @@ interface ShoppingItemCardProps {
 export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   item,
   product,
+  isCompleting = false,
   onToggle,
   onUpdateQuantity,
   onRemove,
@@ -26,6 +28,7 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
 }) => {
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
 
+  const effectiveChecked = item.isChecked || isCompleting;
   const displayPrice = item.averagePrice > 0 ? item.averagePrice : item.lastPrice;
   const itemTotal = displayPrice * item.quantity;
   const categoryIcon = CATEGORY_ICONS[item.category] || '📦';
@@ -60,8 +63,10 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   return (
     <>
       <div
-        className={`group relative flex flex-col p-3 rounded-2xl border transition-all duration-200 gap-2.5 ${
-          item.isChecked
+        className={`group relative flex flex-col p-3 rounded-2xl border transition-all duration-300 gap-2.5 ${
+          isCompleting
+            ? 'bg-emerald-50/90 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-600/80 shadow-md scale-[0.98] opacity-80 translate-x-1.5'
+            : item.isChecked
             ? 'bg-slate-100/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800/70 opacity-75'
             : 'bg-white dark:bg-slate-850 border-slate-200/80 dark:border-slate-750 shadow-xs hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700/60'
         }`}
@@ -73,14 +78,16 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
             {/* Checkbox */}
             <button
               onClick={() => onToggle(item.id)}
-              className={`w-6 h-6 rounded-xl flex items-center justify-center transition-all duration-150 shrink-0 ${
-                item.isChecked
-                  ? 'bg-emerald-500 text-white shadow-xs scale-95'
-                  : 'border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 bg-transparent'
+              className={`w-6 h-6 rounded-xl flex items-center justify-center transition-all duration-200 shrink-0 ${
+                effectiveChecked
+                  ? 'bg-emerald-500 text-white shadow-xs scale-100 ring-2 ring-emerald-200 dark:ring-emerald-800'
+                  : 'border-2 border-slate-300 dark:border-slate-600 hover:border-emerald-500 bg-transparent active:scale-90'
               }`}
-              aria-label={item.isChecked ? 'Desmarcar item' : 'Marcar item'}
+              aria-label={effectiveChecked ? 'Desmarcar item' : 'Marcar item'}
             >
-              {item.isChecked && <Check className="w-4 h-4 stroke-[3]" />}
+              {effectiveChecked && (
+                <Check className={`w-4 h-4 stroke-[3] ${isCompleting ? 'animate-in zoom-in-50 duration-200' : ''}`} />
+              )}
             </button>
 
             {/* Thumbnail Image with Click to Zoom */}
@@ -107,16 +114,22 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
 
             {/* Product Details */}
             <div className="min-w-0 flex-1">
-              <div className="flex items-center space-x-1.5">
+              <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                 <h4
-                  className={`text-sm font-bold truncate ${
-                    item.isChecked
+                  className={`text-sm font-bold truncate transition-colors duration-200 ${
+                    effectiveChecked
                       ? 'line-through text-slate-400 dark:text-slate-500'
                       : 'text-slate-900 dark:text-slate-100'
                   }`}
                 >
                   {item.name}
                 </h4>
+
+                {isCompleting && (
+                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded-md animate-in fade-in zoom-in-90 duration-150 shrink-0">
+                    Comprado ✓
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center space-x-2 mt-0.5 flex-wrap gap-y-1">

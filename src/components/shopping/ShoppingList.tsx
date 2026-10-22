@@ -48,6 +48,44 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null);
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
   const [isCompletedExpanded, setIsCompletedExpanded] = useState(true);
+  const [completingItemIds, setCompletingItemIds] = useState<Set<string>>(new Set());
+  const completingTimeoutsRef = React.useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  React.useEffect(() => {
+    return () => {
+      completingTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      completingTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  const handleToggleItem = (id: string) => {
+    const targetItem = items.find((i) => i.id === id);
+    if (!targetItem) return;
+
+    // If item is pending, trigger gentle completion animation before moving to completed aggregator
+    if (!targetItem.isChecked) {
+      if (completingItemIds.has(id)) return; // Already animating
+
+      // 1. Mark as completing immediately for instant visual feedback
+      setCompletingItemIds((prev) => new Set(prev).add(id));
+
+      // 2. Delay the actual state move so the user sees the check animation & strike-through
+      const timeout = setTimeout(() => {
+        toggleItem(id);
+        setCompletingItemIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        completingTimeoutsRef.current.delete(id);
+      }, 420);
+
+      completingTimeoutsRef.current.set(id, timeout);
+    } else {
+      // If unchecking from the completed aggregator, toggle immediately
+      toggleItem(id);
+    }
+  };
 
   // Filter items by category
   const filteredItems = selectedCategory === 'Todas'
@@ -253,7 +291,8 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                             key={item.id}
                             item={item}
                             product={matchedProduct}
-                            onToggle={toggleItem}
+                            isCompleting={completingItemIds.has(item.id)}
+                            onToggle={handleToggleItem}
                             onUpdateQuantity={updateItemQuantity}
                             onRemove={removeItem}
                             onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
@@ -312,7 +351,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                         key={item.id}
                         item={item}
                         product={matchedProduct}
-                        onToggle={toggleItem}
+                        onToggle={handleToggleItem}
                         onUpdateQuantity={updateItemQuantity}
                         onRemove={removeItem}
                         onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
