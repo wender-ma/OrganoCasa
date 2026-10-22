@@ -94,7 +94,8 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
 
   // Separate pending items (top of page) from checked items (bottom aggregator)
   const pendingItems = filteredItems.filter((item) => !item.isChecked);
-  const completedItems = filteredItems.filter((item) => item.isChecked);
+  // Itens finalizados: ordem contrária da anterior para manter o item mais antigo primeiro na tela
+  const completedItems = [...filteredItems.filter((item) => item.isChecked)].reverse();
 
   // Group pending items by category
   const pendingCategoriesPresent = Array.from(new Set(pendingItems.map((i) => i.category)));

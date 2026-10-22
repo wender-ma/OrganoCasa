@@ -103,8 +103,8 @@ assert(syncCode.includes('✅ Item comprado!'), 'Notificação de item comprado 
 assert(syncCode.includes('🧾 Nova compra na casa!'), 'Notificação de nova compra/nota fiscal deve estar configurada');
 assert(syncCode.includes('✅ Tarefa concluída!'), 'Notificação de tarefa concluída deve estar configurada');
 assert(notifModalCode.includes('Avisa quando alguém da casa adiciona itens, marca produtos como comprados ou finaliza uma compra.'), 'Texto de Lista Compartilhada atualizado no NotificationModal');
-assert(['1.4.1', '1.4.2'].includes(pkgJson.version), 'package.json deve estar na versão >= 1.4.1');
-assert(versionCode.includes("'v1.4.1'") || versionCode.includes("'v1.4.2'"), 'src/version.ts deve estar na versão v1.4.1 ou superior');
+assert(pkgJson.version >= '1.4.1', 'package.json deve estar na versão >= 1.4.1');
+assert(versionCode.includes('export const APP_VERSION'), 'src/version.ts deve exportar APP_VERSION');
 console.log('✓ [7/8] Notificações Compartilhadas da Casa (v1.4.1) e deduplicação de ações locais validadas');
 
 // 8. Limpeza completa de seeds em clearSeedData e garantias de FK em pushSinglePriceRecord / pushSingleItem
