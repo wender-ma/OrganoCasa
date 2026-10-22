@@ -210,7 +210,7 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto modal-safe-top pb-[max(env(safe-area-inset-bottom),1rem)]">
       <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm sm:max-w-md w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 overflow-hidden my-auto shrink-0">
         {/* Header */}
         <div className="px-4 py-3.5 sm:px-5 sm:py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-white dark:bg-slate-900">

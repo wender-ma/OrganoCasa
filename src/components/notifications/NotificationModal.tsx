@@ -81,7 +81,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto pt-[max(env(safe-area-inset-top),1rem)] pb-[max(env(safe-area-inset-bottom),1rem)] animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto modal-safe-top pb-[max(env(safe-area-inset-bottom),1rem)] animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 my-auto shrink-0">
         {/* Header */}
         <div className="flex items-center justify-between">

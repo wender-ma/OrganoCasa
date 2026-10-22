@@ -63,6 +63,10 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.classList.toggle('dark', isDark);
+      const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+      if (themeColorMeta) {
+        themeColorMeta.setAttribute('content', isDark ? '#0f172a' : '#ffffff');
+      }
     }
   }, [isDark]);
 
@@ -116,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 pb-3 pt-[max(env(safe-area-inset-top),0.75rem)] shadow-sm">
+    <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 pb-3 header-safe shadow-xs">
       <div className="max-w-2xl mx-auto flex items-center justify-between">
         {/* Brand & List Selector */}
         <div className="relative">
