@@ -34,6 +34,7 @@ function useShoppingListState() {
   // Computed statistics
   const totalItemsCount = items.length;
   const checkedItemsCount = items.filter((i) => i.isChecked).length;
+  const pendingItemsCount = items.filter((i) => !i.isChecked).length;
   const progressPercentage = totalItemsCount > 0 ? Math.round((checkedItemsCount / totalItemsCount) * 100) : 0;
 
   const estimatedTotal = items.reduce((acc, item) => {
@@ -274,6 +275,7 @@ function useShoppingListState() {
     itemsByCategory,
     totalItemsCount,
     checkedItemsCount,
+    pendingItemsCount,
     progressPercentage,
     estimatedTotal,
     currentCartTotal,

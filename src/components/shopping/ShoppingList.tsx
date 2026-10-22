@@ -8,7 +8,8 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Calendar
 } from 'lucide-react';
 import { ProductCategory, Product, ShoppingListItem } from '../../types';
 import { useShoppingList } from '../../hooks/useShoppingList';
@@ -19,6 +20,24 @@ import { AddItemModal } from './AddItemModal';
 import { EditItemModal } from './EditItemModal';
 import { PriceHistoryModal } from './PriceHistoryModal';
 import { CATEGORY_ICONS } from '../../db/seed';
+
+function getItemMonthKey(item: ShoppingListItem): string {
+  const dateStr = item.updatedAt || item.createdAt;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 'outros';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+function formatMonthLabel(monthKey: string): string {
+  if (monthKey === 'outros') return 'Outros Períodos';
+  const [y, m] = monthKey.split('-').map(Number);
+  if (!y || !m) return 'Histórico';
+  const d = new Date(y, m - 1, 1);
+  const monthName = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  return monthName.charAt(0).toUpperCase() + monthName.slice(1);
+}
 
 interface ShoppingListProps {
   onOpenReceiptUpload: () => void;
@@ -48,6 +67,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null);
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
   const [isCompletedExpanded, setIsCompletedExpanded] = useState(true);
+  const [isPastMonthsExpanded, setIsPastMonthsExpanded] = useState(false);
   const [completingItemIds, setCompletingItemIds] = useState<Set<string>>(new Set());
   const completingTimeoutsRef = React.useRef<Map<string, NodeJS.Timeout>>(new Map());
 
@@ -92,10 +112,34 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
     ? items
     : items.filter((item) => item.category === selectedCategory);
 
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const currentMonthName = now.toLocaleDateString('pt-BR', { month: 'long' });
+  const currentMonthTitle = currentMonthName.charAt(0).toUpperCase() + currentMonthName.slice(1);
+
   // Separate pending items (top of page) from checked items (bottom aggregator)
   const pendingItems = filteredItems.filter((item) => !item.isChecked);
-  // Itens finalizados: ordem contrária da anterior para manter o item mais antigo primeiro na tela
-  const completedItems = [...filteredItems.filter((item) => item.isChecked)].reverse();
+  const allCompletedItems = filteredItems.filter((item) => item.isChecked);
+
+  // Itens finalizados do mês atual (ordem mais antigo primeiro na tela)
+  const currentMonthCompletedItems = [...allCompletedItems.filter(
+    (item) => getItemMonthKey(item) === currentMonthKey
+  )].reverse();
+
+  // Itens finalizados de meses anteriores (histórico arquivado)
+  const pastMonthsCompletedItems = allCompletedItems.filter(
+    (item) => getItemMonthKey(item) !== currentMonthKey
+  );
+
+  // Agrupamento de meses passados por chave AAAA-MM
+  const pastMonthsGroups = pastMonthsCompletedItems.reduce<Record<string, ShoppingListItem[]>>((acc, item) => {
+    const mKey = getItemMonthKey(item);
+    if (!acc[mKey]) acc[mKey] = [];
+    acc[mKey].push(item);
+    return acc;
+  }, {});
+
+  const sortedPastMonthKeys = Object.keys(pastMonthsGroups).sort().reverse();
 
   // Group pending items by category
   const pendingCategoriesPresent = Array.from(new Set(pendingItems.map((i) => i.category)));
@@ -192,8 +236,8 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
       {/* Action Toolbar: Add Item, Clear Checked, Uncheck All */}
       <div className="flex items-center justify-between px-1">
         <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-          {completedItems.length > 0
-            ? `Pendentes (${pendingItems.length}) • Concluídos (${completedItems.length})`
+          {allCompletedItems.length > 0
+            ? `Pendentes (${pendingItems.length}) • No Mês (${currentMonthCompletedItems.length})`
             : `Itens da Lista (${filteredItems.length})`}
         </span>
 
@@ -255,7 +299,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
       ) : (
         <div className="space-y-6">
           {/* Top Section: Pending Items */}
-          {pendingItems.length === 0 && completedItems.length > 0 ? (
+          {pendingItems.length === 0 && allCompletedItems.length > 0 ? (
             <div className="p-5 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-3xl text-center space-y-2 animate-in fade-in duration-200">
               <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/60 rounded-full flex items-center justify-center mx-auto text-emerald-600 dark:text-emerald-300">
                 <CheckCircle2 className="w-6 h-6" />
@@ -309,8 +353,8 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
             </div>
           )}
 
-          {/* Bottom Section: Completed / Checked Items Aggregator */}
-          {completedItems.length > 0 && (
+          {/* Bottom Section: Compras Finalizadas no Mês Atual */}
+          {currentMonthCompletedItems.length > 0 && (
             <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 space-y-3">
               <button
                 type="button"
@@ -323,10 +367,10 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                   </div>
                   <div>
                     <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide">
-                      Comprados / Finalizados ({completedItems.length})
+                      Comprados em {currentMonthTitle} ({currentMonthCompletedItems.length})
                     </h4>
                     <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Itens marcados no carrinho (clique para {isCompletedExpanded ? 'ocultar' : 'ver'})
+                      Itens marcados no carrinho este mês (clique para {isCompletedExpanded ? 'ocultar' : 'ver'})
                     </span>
                   </div>
                 </div>
@@ -345,7 +389,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
 
               {isCompletedExpanded && (
                 <div className="space-y-2 animate-in slide-in-from-top-2 duration-150">
-                  {completedItems.map((item) => {
+                  {currentMonthCompletedItems.map((item) => {
                     const matchedProduct = products.find((p) => p.id === item.productId);
                     return (
                       <ShoppingItemCard
@@ -359,6 +403,94 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                         onEdit={(it) => setEditingItem(it)}
                         onSelectBrand={handleSelectBrand}
                       />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Histórico de Compras de Meses Anteriores */}
+          {pastMonthsCompletedItems.length > 0 && (
+            <div className="pt-2 border-t border-dashed border-slate-200 dark:border-slate-800 space-y-3">
+              <button
+                type="button"
+                onClick={() => setIsPastMonthsExpanded((prev) => !prev)}
+                className="w-full flex items-center justify-between p-3.5 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100/70 dark:hover:bg-indigo-950/50 border border-indigo-200/70 dark:border-indigo-900/50 rounded-2xl transition-all text-left group shadow-xs"
+              >
+                <div className="flex items-center space-x-3">
+                  <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
+                      Histórico de Meses Anteriores ({pastMonthsCompletedItems.length})
+                    </h4>
+                    <span className="text-[11px] text-indigo-700/80 dark:text-indigo-400">
+                      Compras finalizadas em meses passados (clique para {isPastMonthsExpanded ? 'ocultar' : 'ver'})
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2 text-indigo-500 dark:text-indigo-400">
+                  <span className="text-[11px] font-semibold hidden sm:inline">
+                    {isPastMonthsExpanded ? 'Recolher' : 'Expandir'}
+                  </span>
+                  {isPastMonthsExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </div>
+              </button>
+
+              {isPastMonthsExpanded && (
+                <div className="space-y-4 pt-1 animate-in slide-in-from-top-2 duration-150">
+                  {sortedPastMonthKeys.map((mKey) => {
+                    const monthItems = pastMonthsGroups[mKey] || [];
+                    const monthLabel = formatMonthLabel(mKey);
+                    const monthTotal = monthItems.reduce((acc, it) => {
+                      const price = it.averagePrice > 0 ? it.averagePrice : it.lastPrice;
+                      return acc + price * it.quantity;
+                    }, 0);
+
+                    return (
+                      <div key={mKey} className="space-y-2 p-3 bg-slate-50 dark:bg-slate-850/60 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                        <div className="flex items-center justify-between px-1">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                              {monthLabel}
+                            </span>
+                            <span className="text-[10px] text-slate-500 bg-slate-200/80 dark:bg-slate-800 px-1.5 py-0.5 rounded-md font-medium">
+                              {monthItems.length} {monthItems.length === 1 ? 'item' : 'itens'}
+                            </span>
+                          </div>
+                          {monthTotal > 0 && (
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                              R$ {monthTotal.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          {monthItems.map((item) => {
+                            const matchedProduct = products.find((p) => p.id === item.productId);
+                            return (
+                              <ShoppingItemCard
+                                key={item.id}
+                                item={item}
+                                product={matchedProduct}
+                                onToggle={handleToggleItem}
+                                onUpdateQuantity={updateItemQuantity}
+                                onRemove={removeItem}
+                                onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
+                                onEdit={(it) => setEditingItem(it)}
+                                onSelectBrand={handleSelectBrand}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

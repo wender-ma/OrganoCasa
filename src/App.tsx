@@ -25,7 +25,8 @@ const AppContent: React.FC = () => {
     items,
     setActiveListId,
     createList,
-    totalItemsCount
+    totalItemsCount,
+    pendingItemsCount
   } = useShoppingList();
 
   const { reminders } = useReminders();
@@ -124,7 +125,7 @@ const AppContent: React.FC = () => {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         pendingRemindersCount={pendingRemindersCount}
-        shoppingItemsCount={totalItemsCount}
+        shoppingItemsCount={pendingItemsCount}
       />
 
       {/* Receipt Upload Modal */}
