@@ -63,9 +63,9 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   return (
     <>
       <div
-        className={`group relative flex flex-col p-3 rounded-2xl border transition-all duration-300 gap-2.5 ${
+        className={`group relative flex flex-col p-3 rounded-2xl border transition-all duration-500 ease-out gap-2.5 ${
           isCompleting
-            ? 'bg-emerald-50/90 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-600/80 shadow-md scale-[0.98] opacity-80 translate-x-1.5'
+            ? 'bg-emerald-50/90 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-600/80 shadow-md scale-[0.98] opacity-85 translate-x-1'
             : item.isChecked
             ? 'bg-slate-100/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800/70 opacity-75'
             : 'bg-white dark:bg-slate-850 border-slate-200/80 dark:border-slate-750 shadow-xs hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700/60'

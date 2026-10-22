@@ -89,7 +89,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
       // 1. Mark as completing immediately for instant visual feedback
       setCompletingItemIds((prev) => new Set(prev).add(id));
 
-      // 2. Delay the actual state move so the user sees the check animation & strike-through
+      // 2. Delay the actual state move so the user sees the check animation & strike-through comfortably
       const timeout = setTimeout(() => {
         toggleItem(id);
         setCompletingItemIds((prev) => {
@@ -98,7 +98,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
           return next;
         });
         completingTimeoutsRef.current.delete(id);
-      }, 420);
+      }, 750);
 
       completingTimeoutsRef.current.set(id, timeout);
     } else {
