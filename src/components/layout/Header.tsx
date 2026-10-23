@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShoppingBag,
   Wifi,
   WifiOff,
   Plus,
   ChevronDown,
-  ChevronUp,
   CheckCircle2,
   Users,
   RefreshCw,
@@ -110,86 +109,6 @@ export const Header: React.FC<HeaderProps> = ({
     await triggerFullSync();
   };
 
-  // Reclinable / Pull-down Header State (v1.4.7)
-  const [isReclined, setIsReclined] = useState(false);
-  const [dragOffset, setDragOffset] = useState(0);
-  const isDraggingRef = useRef(false);
-
-  // Auto-collapse header when user scrolls down
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 20 && isReclined) {
-        setIsReclined(false);
-      }
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [isReclined]);
-
-  // Global touch pull-down gesture when at top of page (scrollY <= 4)
-  useEffect(() => {
-    let startY: number | null = null;
-    let isTracking = false;
-
-    const onGlobalTouchStart = (e: TouchEvent) => {
-      if (window.scrollY <= 4) {
-        startY = e.touches[0].clientY;
-        isTracking = true;
-        isDraggingRef.current = true;
-      }
-    };
-
-    const onGlobalTouchMove = (e: TouchEvent) => {
-      if (!isTracking || startY === null) return;
-      const currentY = e.touches[0].clientY;
-      const diff = currentY - startY;
-
-      if (window.scrollY <= 4) {
-        if (!isReclined && diff > 0) {
-          // Pulling down to recline
-          const damped = Math.min(60, diff * 0.65);
-          setDragOffset(damped);
-        } else if (isReclined && diff < 0) {
-          // Pushing up to collapse
-          const damped = Math.max(-60, diff * 0.65);
-          setDragOffset(damped);
-        }
-      }
-    };
-
-    const onGlobalTouchEnd = (e: TouchEvent) => {
-      if (!isTracking || startY === null) return;
-      isTracking = false;
-      isDraggingRef.current = false;
-      const endY = e.changedTouches[0]?.clientY ?? startY;
-      const diff = endY - startY;
-      startY = null;
-
-      if (!isReclined) {
-        if (diff > 30) {
-          setIsReclined(true);
-        }
-      } else {
-        if (diff < -20) {
-          setIsReclined(false);
-        }
-      }
-      setDragOffset(0);
-    };
-
-    window.addEventListener('touchstart', onGlobalTouchStart, { passive: true });
-    window.addEventListener('touchmove', onGlobalTouchMove, { passive: true });
-    window.addEventListener('touchend', onGlobalTouchEnd, { passive: true });
-
-    return () => {
-      window.removeEventListener('touchstart', onGlobalTouchStart);
-      window.removeEventListener('touchmove', onGlobalTouchMove);
-      window.removeEventListener('touchend', onGlobalTouchEnd);
-    };
-  }, [isReclined]);
-
-  const currentTranslateY = isReclined ? 52 + dragOffset : Math.max(0, dragOffset);
-
   const handleCreateList = (e: React.FormEvent) => {
     e.preventDefault();
     if (newListTitle.trim()) {
@@ -201,15 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header
-      style={{
-        transform: `translateY(${currentTranslateY}px)`,
-        transition: isDraggingRef.current ? 'none' : 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
-      }}
-      className={`sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 pt-1.5 pb-1 header-flush-top will-change-transform ${
-        isReclined ? 'shadow-md ring-1 ring-emerald-500/15' : 'shadow-2xs'
-      }`}
-    >
+    <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-4 py-2 header-safe shadow-2xs">
       <div className="max-w-2xl mx-auto flex items-center justify-between">
         {/* Brand & List Selector */}
         <div className="relative">
@@ -356,28 +267,6 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Reclinable Pull Handle & Status Indicator */}
-      <button
-        type="button"
-        onClick={() => setIsReclined((prev) => !prev)}
-        className="w-full pt-1 pb-0.5 flex flex-col items-center justify-center group focus:outline-none cursor-pointer"
-        title={isReclined ? 'Toque ou role para recolher o topo' : 'Puxe para baixo ou toque para reclinar o topo'}
-        aria-label={isReclined ? 'Recolher topo' : 'Reclinar topo para fácil acesso'}
-      >
-        <div
-          className={`h-1 rounded-full transition-all duration-300 ${
-            isReclined
-              ? 'w-10 bg-emerald-500 dark:bg-emerald-400'
-              : 'w-7 bg-slate-300/80 dark:bg-slate-700/80 group-hover:bg-slate-400 dark:group-hover:bg-slate-600'
-          }`}
-        />
-        {isReclined && (
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5 mt-0.5 animate-in fade-in">
-            <ChevronUp className="w-3 h-3" />
-            <span>Toque ou role para recolher</span>
-          </span>
-        )}
-      </button>
 
       {/* Modals */}
       <HouseholdModal
