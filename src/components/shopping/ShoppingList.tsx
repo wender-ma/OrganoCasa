@@ -150,76 +150,76 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
 
   return (
     <div className="space-y-4 pb-36 sm:pb-32">
-      {/* Overview Progress & Budget Card */}
-      <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl p-5 text-white shadow-xl shadow-emerald-900/10 relative overflow-hidden">
-        {/* Subtle decorative circles */}
-        <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-xl pointer-events-none" />
-        <div className="absolute left-1/2 -top-10 w-24 h-24 bg-white/10 rounded-full blur-lg pointer-events-none" />
+      {/* Overview Progress & Budget Card — Compact & Space-Saving (v1.4.9) */}
+      <div className="bg-gradient-to-r from-emerald-600 via-emerald-650 to-teal-700 dark:from-emerald-750 dark:to-teal-900 rounded-2xl p-3 sm:p-3.5 text-white shadow-md shadow-emerald-950/10 relative overflow-hidden">
+        {/* Subtle decorative glow */}
+        <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-lg pointer-events-none" />
 
-        <div className="relative z-10 space-y-3">
-          {/* Header row */}
+        <div className="relative z-10 space-y-2">
+          {/* Main Row: Progress stats & Quick action buttons */}
           <div className="flex items-center justify-between">
-            <div>
-              <span className="text-xs font-semibold text-emerald-100 uppercase tracking-wider">
-                Progresso das Compras
+            <div className="flex items-baseline space-x-1.5 min-w-0">
+              <span className="text-lg sm:text-xl font-black tracking-tight">
+                {checkedItemsCount}/{totalItemsCount}
               </span>
-              <h2 className="text-2xl font-black mt-0.5">
-                {checkedItemsCount} de {totalItemsCount} itens
-              </h2>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              {/* Quick Add Button */}
-              <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="p-2 bg-white text-emerald-800 hover:bg-emerald-50 active:scale-95 rounded-2xl text-xs font-bold flex items-center justify-center shadow-md transition-all"
-                title="Adicionar Item"
-              >
-                <Plus className="w-4 h-4 stroke-[3]" />
-              </button>
-
-              {/* Quick NF Scan Button */}
-              <button
-                onClick={onOpenReceiptUpload}
-                className="px-3.5 py-2 bg-white/20 hover:bg-white/30 active:scale-95 backdrop-blur-md rounded-2xl text-xs font-bold text-white flex items-center space-x-1.5 border border-white/30 transition-all shadow-xs"
-              >
-                <ReceiptText className="w-4 h-4" />
-                <span className="hidden sm:inline">Ler Nota</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="space-y-1">
-            <div className="w-full h-2.5 bg-black/20 rounded-full overflow-hidden p-0.5">
-              <div
-                className="h-full bg-white rounded-full transition-all duration-300 shadow-xs"
-                style={{ width: `${progressPercentage}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[11px] font-medium text-emerald-100">
-              <span>{progressPercentage}% concluído</span>
+              <span className="text-xs font-semibold text-emerald-100 truncate">
+                itens comprados
+              </span>
+              <span className="text-[11px] font-bold bg-white/20 px-1.5 py-0.5 rounded-md leading-none shrink-0">
+                {progressPercentage}%
+              </span>
               {checkedItemsCount === totalItemsCount && totalItemsCount > 0 && (
-                <span className="flex items-center space-x-1 text-emerald-200 font-bold">
-                  <Sparkles className="w-3 h-3" />
-                  <span>Carrinho completo!</span>
+                <span className="hidden sm:inline-flex items-center space-x-0.5 text-[10px] font-bold bg-emerald-400/30 text-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">
+                  <Sparkles className="w-2.5 h-2.5" />
+                  <span>Completo!</span>
                 </span>
               )}
             </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center space-x-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={onOpenReceiptUpload}
+                className="px-2.5 py-1 bg-white/15 hover:bg-white/25 active:scale-95 backdrop-blur-md rounded-xl text-xs font-bold text-white flex items-center space-x-1 border border-white/20 transition-all shadow-2xs"
+                title="Escanear ou ler Nota Fiscal"
+              >
+                <ReceiptText className="w-3.5 h-3.5" />
+                <span className="text-[11px]">Ler Nota</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(true)}
+                className="p-1.5 bg-white text-emerald-800 hover:bg-emerald-50 active:scale-95 rounded-xl shadow-xs transition-all flex items-center justify-center"
+                title="Adicionar Item"
+                aria-label="Adicionar Item"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+              </button>
+            </div>
           </div>
 
-          {/* Budget & Spend row */}
-          <div className="pt-2 border-t border-white/15 flex items-center justify-between text-xs">
-            <div>
-              <span className="text-emerald-100/80 block text-[10px]">No Carrinho</span>
-              <span className="font-extrabold text-base text-white">
+          {/* Slim Progress Bar */}
+          <div className="w-full h-1.5 bg-black/25 rounded-full overflow-hidden p-[1px]">
+            <div
+              className="h-full bg-white rounded-full transition-all duration-300 shadow-xs"
+              style={{ width: `${progressPercentage}%` }}
+            />
+          </div>
+
+          {/* Compact Financial Summary Row */}
+          <div className="flex items-center justify-between text-[11px] text-emerald-100/90 font-medium pt-0.5">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-emerald-200/80 text-[10px]">No Carrinho:</span>
+              <span className="font-extrabold text-white text-xs sm:text-sm">
                 R$ {currentCartTotal.toFixed(2)}
               </span>
             </div>
 
-            <div className="text-right">
-              <span className="text-emerald-100/80 block text-[10px]">Total Estimado</span>
-              <span className="font-bold text-sm text-emerald-100">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-emerald-200/80 text-[10px]">Total Estimado:</span>
+              <span className="font-bold text-emerald-100 text-xs sm:text-sm">
                 R$ {estimatedTotal.toFixed(2)}
               </span>
             </div>
