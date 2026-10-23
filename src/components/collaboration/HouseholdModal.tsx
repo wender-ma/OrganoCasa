@@ -40,11 +40,13 @@ import {
   createAdditionalHousehold,
   removeHouseholdMember,
   leaveHousehold,
+  isSeedRecord,
   UserSession,
   ConnectedHousehold,
   SyncStatus
 } from '../../services/supabaseSync';
 import {
+  getSupabaseClient,
   getSupabaseConfig,
   saveSupabaseConfig,
   clearSupabaseConfig,
@@ -81,8 +83,16 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
 
-  // Live Query of Members in Active Household
-  const members = useLiveQuery<HouseholdMember[]>(() => db.householdMembers.toArray(), []) || [];
+  // Live Query of Members in Active Household (excluding legacy mock/seed members)
+  const rawMembers = useLiveQuery<HouseholdMember[]>(() => db.householdMembers.toArray(), []) || [];
+  const members = rawMembers.filter(
+    (m) =>
+      !isSeedRecord(m.id) &&
+      m.id !== 'member-1' &&
+      m.id !== 'member-2' &&
+      m.name !== 'Esposa / Parceiro(a)' &&
+      m.name.trim().toLowerCase() !== 'eu'
+  );
 
   // Sync Status
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
@@ -104,6 +114,18 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
       setIsAddingHouseOpen(false);
       setMemberToRemove(null);
       setIsConfirmingLeave(false);
+
+      // Auto-purge any legacy seed members from local Dexie and remote Supabase
+      db.householdMembers.bulkDelete(['member-1', 'member-2']).catch(console.warn);
+      if (current?.householdId) {
+        const client = getSupabaseClient();
+        client
+          ?.from('household_members')
+          .delete()
+          .in('id', ['member-1', 'member-2'])
+          .eq('household_id', current.householdId)
+          .then(() => {}, (err) => console.warn(err));
+      }
     }
   }, [isOpen]);
 
@@ -648,8 +670,13 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
                     </div>
                   ) : (
                     members.map((m: HouseholdMember) => {
-                      const isOwnerMember = m.role === 'owner' || m.isDefault;
-                      const isSelf = m.userId === session.id || m.name.toLowerCase() === 'eu' || m.name.toLowerCase() === session.email.split('@')[0].toLowerCase();
+                      const isSelf = Boolean(
+                        session && (
+                          (m.userId && m.userId === session.id) ||
+                          (m.name && m.name.toLowerCase() === session.email.split('@')[0].toLowerCase())
+                        )
+                      );
+                      const isOwnerMember = m.role === 'owner' || (Boolean(session?.isOwner) && isSelf);
 
                       return (
                         <div

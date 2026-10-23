@@ -1037,25 +1037,45 @@ export async function pullFreshHouseholdData(householdId: string): Promise<void>
           await db.priceRecords.bulkPut(prices);
         }
 
-        // Add remote household members
+        // Add remote household members (purging legacy mock seed members)
         if (remoteMembers?.length) {
-          const members: HouseholdMember[] = remoteMembers.map((m: any) => {
-            freshSyncedIds.add(m.id);
-            const isOwner = remoteHouseData?.created_by
-              ? m.user_id === remoteHouseData.created_by
-              : Boolean(m.is_default);
-            return {
-              id: m.id,
-              name: m.name,
-              color: m.color || '#10b981',
-              avatarEmoji: m.avatar_emoji || '👤',
-              isDefault: Boolean(m.is_default),
-              userId: m.user_id || undefined,
-              role: isOwner ? 'owner' : 'member',
-              createdAt: m.created_at
-            };
-          });
+          const houseCreatorId = remoteHouseData?.created_by;
+          const currentSession = getCurrentSession();
+
+          // Auto-purge any legacy seed members from Supabase for this household
+          if (client) {
+            client
+              .from('household_members')
+              .delete()
+              .in('id', ['member-1', 'member-2'])
+              .eq('household_id', householdId)
+              .then(() => {}, () => {});
+          }
+
+          const members: HouseholdMember[] = remoteMembers
+            .filter((m: any) => !isSeedRecord(m.id) && m.id !== 'member-1' && m.id !== 'member-2' && m.name !== 'Esposa / Parceiro(a)')
+            .map((m: any) => {
+              freshSyncedIds.add(m.id);
+              // Only the true household creator is 'owner', all other family participants are 'member'
+              const isOwner = Boolean(
+                houseCreatorId
+                  ? m.user_id === houseCreatorId
+                  : (currentSession && (m.user_id === currentSession.id || m.name?.toLowerCase() === currentSession.email.split('@')[0].toLowerCase()))
+              );
+
+              return {
+                id: m.id,
+                name: m.name,
+                color: m.color || '#10b981',
+                avatarEmoji: m.avatar_emoji || '👤',
+                isDefault: Boolean(m.is_default),
+                userId: m.user_id || undefined,
+                role: isOwner ? 'owner' : 'member',
+                createdAt: m.created_at
+              };
+            });
           await db.householdMembers.bulkPut(members);
+          await db.householdMembers.bulkDelete(['member-1', 'member-2']);
         }
       }
     );
@@ -1325,22 +1345,37 @@ export async function triggerFullSync(): Promise<boolean> {
       }
     }
 
-    // 2.7 Merge Household Members
+    // 2.7 Merge Household Members (ignoring any mock seed members)
     for (const remoteMem of remoteMembers || []) {
+      if (isSeedRecord(remoteMem.id) || remoteMem.id === 'member-1' || remoteMem.id === 'member-2') {
+        continue;
+      }
       syncedIds.add(remoteMem.id);
       const local = localMembers.find((m) => m.id === remoteMem.id);
       if (!local || !isRecentLocalAction(remoteMem.id)) {
+        const isOwner = Boolean(
+          session && (remoteMem.user_id === session.id || remoteMem.name?.toLowerCase() === session.email.split('@')[0].toLowerCase())
+        );
         await db.householdMembers.put({
           id: remoteMem.id,
           name: remoteMem.name,
           color: remoteMem.color || '#10b981',
           avatarEmoji: remoteMem.avatar_emoji || '👤',
-          isDefault: Boolean(remoteMem.is_default)
+          isDefault: Boolean(remoteMem.is_default),
+          userId: remoteMem.user_id || undefined,
+          role: isOwner ? 'owner' : 'member',
+          createdAt: remoteMem.created_at
         });
       }
     }
 
+    await db.householdMembers.bulkDelete(['member-1', 'member-2']);
+
     for (const local of localMembers) {
+      if (isSeedRecord(local.id) || local.id === 'member-1' || local.id === 'member-2') {
+        await db.householdMembers.delete(local.id);
+        continue;
+      }
       if (!remoteMemberMap.has(local.id) && syncedIds.has(local.id) && !isRecentLocalAction(local.id)) {
         await db.householdMembers.delete(local.id);
         syncedIds.delete(local.id);
@@ -1571,7 +1606,7 @@ export async function triggerFullSync(): Promise<boolean> {
     // 3.7 Push Household Members SEVENTH
     const updatedLocalMembers = await db.householdMembers.toArray();
     const membersToPush = updatedLocalMembers.filter((local) => {
-      if (isSeedRecord(local.id)) return false;
+      if (isSeedRecord(local.id) || local.id === 'member-1' || local.id === 'member-2') return false;
       const remote = remoteMemberMap.get(local.id);
       if (!remote) return true;
       if (isRecentLocalAction(local.id)) return true;
@@ -1917,7 +1952,11 @@ export function setupRealtimeSubscriptions(): void {
       async (payload) => {
         if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
           const m = payload.new as any;
+          if (isSeedRecord(m.id) || m.id === 'member-1' || m.id === 'member-2') return;
           markIdsSynced(householdId, [m.id]);
+          const isOwner = Boolean(
+            session && (m.user_id === session.id || m.name?.toLowerCase() === session.email.split('@')[0].toLowerCase())
+          );
           await db.householdMembers.put({
             id: m.id,
             name: m.name,
@@ -1925,6 +1964,7 @@ export function setupRealtimeSubscriptions(): void {
             avatarEmoji: m.avatar_emoji || '👤',
             isDefault: Boolean(m.is_default),
             userId: m.user_id || undefined,
+            role: isOwner ? 'owner' : 'member',
             createdAt: m.created_at
           });
           notifyStatusChange();
