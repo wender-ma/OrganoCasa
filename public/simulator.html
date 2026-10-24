@@ -179,7 +179,7 @@
   <div class="top-controls">
     <div style="display: flex; align-items: center; gap: 8px;">
       <span style="font-weight: 700; font-size: 13px;">📱 OrganoCasa Simulator</span>
-      <span class="badge-version">v1.4.13</span>
+      <span class="badge-version">v1.4.14</span>
     </div>
 
     <!-- Seletor de Modelo de Topo (1 a 5) -->
@@ -430,6 +430,29 @@
     function reloadFrame() {
       frame.src = frame.src;
     }
+
+    // Fechar menus abertos no iframe ao clicar fora do celular ou pressionar Esc
+    window.addEventListener('mousedown', (e) => {
+      if (!document.getElementById('phoneChassis')?.contains(e.target)) {
+        try {
+          const doc = frame.contentDocument;
+          if (doc) {
+            doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          }
+        } catch (err) {}
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        try {
+          const doc = frame.contentDocument;
+          if (doc) {
+            doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          }
+        } catch (err) {}
+      }
+    });
 
     // Initial scale and model adjustment based on screen height
     window.addEventListener('DOMContentLoaded', () => {

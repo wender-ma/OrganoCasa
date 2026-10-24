@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShoppingBag,
   Wifi,
@@ -11,7 +11,8 @@ import {
   Bell,
   Sun,
   Moon,
-  SlidersHorizontal
+  SlidersHorizontal,
+  X
 } from 'lucide-react';
 import { ShoppingList } from '../../types';
 import { HouseholdModal } from '../collaboration/HouseholdModal';
@@ -79,6 +80,52 @@ export const Header: React.FC<HeaderProps> = ({
   const [headerModel, setHeaderModel] = useState<number>(resolveInitialHeaderModel);
   const [showQuickControlMenu, setShowQuickControlMenu] = useState(false);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+
+  const quickControlRef = useRef<HTMLDivElement>(null);
+  const listMenuRef = useRef<HTMLDivElement>(null);
+
+  // Fechar menus ao clicar fora ou ao pressionar Escape
+  useEffect(() => {
+    if (!showQuickControlMenu && !showListMenu) return;
+
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      if (showQuickControlMenu) {
+        const isInsideControl = quickControlRef.current && quickControlRef.current.contains(target);
+        const isTrigger = target.closest('[data-quick-control-trigger]');
+        if (!isInsideControl && !isTrigger) {
+          setShowQuickControlMenu(false);
+        }
+      }
+
+      if (showListMenu) {
+        const isInsideList = listMenuRef.current && listMenuRef.current.contains(target);
+        const isTrigger = target.closest('[data-list-menu-trigger]');
+        if (!isInsideList && !isTrigger) {
+          setShowListMenu(false);
+        }
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowQuickControlMenu(false);
+        setShowListMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showQuickControlMenu, showListMenu]);
 
   useEffect(() => {
     const checkModel = () => {
@@ -193,135 +240,170 @@ export const Header: React.FC<HeaderProps> = ({
   // Popover da Central de Controle (reúne ações em 1 só botão)
   const renderQuickControlMenu = () => (
     showQuickControlMenu && (
-      <div className="absolute top-12 right-2 w-72 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
-        <div className="px-2 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-2">
-          <span>Central de Controle</span>
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{APP_VERSION}</span>
-        </div>
+      <>
+        {/* Backdrop para fechar ao clicar fora */}
+        <div
+          className="fixed inset-0 z-40 bg-black/25 dark:bg-black/50 backdrop-blur-[1px]"
+          onClick={() => setShowQuickControlMenu(false)}
+          aria-hidden="true"
+        />
 
-        {/* Grade de Ações Rápidas */}
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          {/* Sincronização */}
-          <button
-            type="button"
-            onClick={handleManualSync}
-            disabled={syncStatus.isSyncing}
-            className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750"
-          >
-            <div className="flex items-center justify-between">
-              <RefreshCw className={`w-4 h-4 text-emerald-600 dark:text-emerald-400 ${syncStatus.isSyncing ? 'animate-spin' : ''}`} />
-              <span className="text-[9px] font-bold text-slate-400">{isOnline ? 'Online' : 'Offline'}</span>
+        <div
+          ref={quickControlRef}
+          className="absolute top-full mt-2 right-0 w-72 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50 animate-in fade-in zoom-in-95 duration-150"
+        >
+          <div className="px-2 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 mb-2">
+            <div className="flex items-center space-x-1.5">
+              <span>Central de Controle</span>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{APP_VERSION}</span>
             </div>
-            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Sincronizar</span>
-          </button>
-
-          {/* Tema */}
-          <button
-            type="button"
-            onClick={handleToggleTheme}
-            className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750"
-          >
-            <div className="flex items-center justify-between">
-              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
-              <span className="text-[9px] font-bold text-slate-400">{isDark ? 'Escuro' : 'Claro'}</span>
-            </div>
-            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Alternar Tema</span>
-          </button>
-
-          {/* Espaço Família */}
-          <button
-            type="button"
-            onClick={() => { setIsHouseholdOpen(true); setShowQuickControlMenu(false); }}
-            className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750 relative"
-          >
-            <div className="flex items-center justify-between">
-              <Users className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-              {session && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
-            </div>
-            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Espaço Família</span>
-          </button>
-
-          {/* Notificações */}
-          <button
-            type="button"
-            onClick={() => { setIsNotificationOpen(true); setShowQuickControlMenu(false); }}
-            className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750 relative"
-          >
-            <div className="flex items-center justify-between">
-              <Bell className="w-4 h-4 text-amber-500" />
-              {notificationPermission === 'granted' && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
-            </div>
-            <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Notificações</span>
-          </button>
-        </div>
-
-        {/* Seletor Rápido de Modelos de Topo */}
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-          <div className="px-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center justify-between">
-            <span>Modelo do Topo</span>
-            <span className="text-[10px] text-emerald-500 font-bold">M{headerModel} ativo</span>
+            <button
+              type="button"
+              onClick={() => setShowQuickControlMenu(false)}
+              className="p-1 -mr-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              title="Fechar Central de Controle"
+              aria-label="Fechar"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <div className="grid grid-cols-5 gap-1">
-            {[1, 2, 3, 4, 5].map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => selectHeaderModel(m)}
-                className={`py-1 text-xs font-bold rounded-lg transition-all ${
-                  headerModel === m
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                }`}
-                title={`Modelo ${m}`}
-              >
-                M{m}
-              </button>
-            ))}
+
+          {/* Grade de Ações Rápidas */}
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            {/* Sincronização */}
+            <button
+              type="button"
+              onClick={handleManualSync}
+              disabled={syncStatus.isSyncing}
+              className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750"
+            >
+              <div className="flex items-center justify-between">
+                <RefreshCw className={`w-4 h-4 text-emerald-600 dark:text-emerald-400 ${syncStatus.isSyncing ? 'animate-spin' : ''}`} />
+                <span className="text-[9px] font-bold text-slate-400">{isOnline ? 'Online' : 'Offline'}</span>
+              </div>
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Sincronizar</span>
+            </button>
+
+            {/* Tema */}
+            <button
+              type="button"
+              onClick={handleToggleTheme}
+              className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750"
+            >
+              <div className="flex items-center justify-between">
+                {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-500" />}
+                <span className="text-[9px] font-bold text-slate-400">{isDark ? 'Escuro' : 'Claro'}</span>
+              </div>
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Alternar Tema</span>
+            </button>
+
+            {/* Espaço Família */}
+            <button
+              type="button"
+              onClick={() => { setIsHouseholdOpen(true); setShowQuickControlMenu(false); }}
+              className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750 relative"
+            >
+              <div className="flex items-center justify-between">
+                <Users className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                {session && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+              </div>
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Espaço Família</span>
+            </button>
+
+            {/* Notificações */}
+            <button
+              type="button"
+              onClick={() => { setIsNotificationOpen(true); setShowQuickControlMenu(false); }}
+              className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 hover:bg-slate-100 dark:hover:bg-slate-800 text-left flex flex-col space-y-1 transition-colors border border-slate-100 dark:border-slate-750 relative"
+            >
+              <div className="flex items-center justify-between">
+                <Bell className="w-4 h-4 text-amber-500" />
+                {notificationPermission === 'granted' && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
+              </div>
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Notificações</span>
+            </button>
+          </div>
+
+          {/* Seletor Rápido de Modelos de Topo */}
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="px-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center justify-between">
+              <span>Modelo do Topo</span>
+              <span className="text-[10px] text-emerald-500 font-bold">M{headerModel} ativo</span>
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {[1, 2, 3, 4, 5].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => selectHeaderModel(m)}
+                  className={`py-1 text-xs font-bold rounded-lg transition-all ${
+                    headerModel === m
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                  title={`Modelo ${m}`}
+                >
+                  M{m}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      </>
     )
   );
 
   // Seletor Dropdown de Listas (comum a todos os modelos)
   const renderListSelectorDropdown = () => (
     showListMenu && (
-      <div className="absolute top-12 left-0 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
-        <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-          <span>Suas Listas</span>
-          <span className="text-[10px] text-slate-400 lowercase font-normal">{APP_VERSION}</span>
-        </div>
-        <div className="max-h-48 overflow-y-auto">
-          {lists.map((list) => (
+      <>
+        {/* Backdrop para fechar ao clicar fora */}
+        <div
+          className="fixed inset-0 z-40 bg-black/25 dark:bg-black/50 backdrop-blur-[1px]"
+          onClick={() => setShowListMenu(false)}
+          aria-hidden="true"
+        />
+
+        <div
+          ref={listMenuRef}
+          className="absolute top-full mt-2 left-0 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-150"
+        >
+          <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Suas Listas</span>
+            <span className="text-[10px] text-slate-400 lowercase font-normal">{APP_VERSION}</span>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {lists.map((list) => (
+              <button
+                key={list.id}
+                onClick={() => {
+                  onSelectList(list.id);
+                  setShowListMenu(false);
+                }}
+                className={`w-full px-3 py-2 text-sm text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${
+                  list.id === activeList?.id
+                    ? 'text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50/50 dark:bg-emerald-950/30'
+                    : 'text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <span className="truncate">{list.title}</span>
+                {list.id === activeList?.id && (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1 px-2">
             <button
-              key={list.id}
-              onClick={() => {
-                onSelectList(list.id);
-                setShowListMenu(false);
-              }}
-              className={`w-full px-3 py-2 text-sm text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${
-                list.id === activeList?.id
-                  ? 'text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50/50 dark:bg-emerald-950/30'
-                  : 'text-slate-700 dark:text-slate-200'
-              }`}
+              onClick={() => setShowNewListPrompt(true)}
+              className="w-full px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-xl flex items-center space-x-1.5 transition-colors"
             >
-              <span className="truncate">{list.title}</span>
-              {list.id === activeList?.id && (
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              )}
+              <Plus className="w-3.5 h-3.5" />
+              <span>Criar Nova Lista</span>
             </button>
-          ))}
+          </div>
         </div>
-        <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1 px-2">
-          <button
-            onClick={() => setShowNewListPrompt(true)}
-            className="w-full px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-xl flex items-center space-x-1.5 transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Criar Nova Lista</span>
-          </button>
-        </div>
-      </div>
+      </>
     )
   );
 
@@ -338,6 +420,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Brand & List Selector */}
             <div className="relative">
               <button
+                data-list-menu-trigger="true"
                 onClick={() => setShowListMenu(!showListMenu)}
                 className="flex items-center space-x-2 text-left group focus:outline-none"
               >
@@ -372,6 +455,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 type="button"
+                data-quick-control-trigger="true"
                 onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
                 className="w-9 h-9 rounded-full bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center justify-center text-slate-700 dark:text-slate-200 transition-all active:scale-95 relative"
                 title="Abrir Central de Controle"
@@ -400,6 +484,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Brand in translucent white */}
             <div className="relative">
               <button
+                data-list-menu-trigger="true"
                 onClick={() => setShowListMenu(!showListMenu)}
                 className="flex items-center space-x-2 text-left group focus:outline-none"
               >
@@ -429,6 +514,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="relative flex items-center space-x-2">
               <button
                 type="button"
+                data-quick-control-trigger="true"
                 onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
                 className="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-xs border border-white/30 text-white shadow-xs flex items-center justify-center transition-all active:scale-95"
                 title="Central de Controle"
@@ -452,6 +538,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Brand in Capsule */}
             <div className="relative">
               <button
+                data-list-menu-trigger="true"
                 onClick={() => setShowListMenu(!showListMenu)}
                 className="flex items-center space-x-2 text-left focus:outline-none"
               >
@@ -474,6 +561,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="relative flex items-center space-x-1.5">
               <button
                 type="button"
+                data-quick-control-trigger="true"
                 onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
                 className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-transform active:scale-95"
                 title="Central de Controle"
@@ -497,6 +585,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Brand compact */}
             <div className="relative">
               <button
+                data-list-menu-trigger="true"
                 onClick={() => setShowListMenu(!showListMenu)}
                 className="flex items-center space-x-1.5 text-left focus:outline-none"
               >
@@ -516,7 +605,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* 4 Micro Icons */}
-            <div className="flex items-center space-x-1">
+            <div className="relative flex items-center space-x-1">
               <button
                 type="button"
                 onClick={handleToggleTheme}
@@ -557,6 +646,7 @@ export const Header: React.FC<HeaderProps> = ({
 
               <button
                 type="button"
+                data-quick-control-trigger="true"
                 onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
                 className="p-1 text-emerald-600 dark:text-emerald-400 rounded-md transition-colors"
                 title="Alternar Modelo"
@@ -583,6 +673,7 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Brand & List Selector */}
             <div className="relative">
               <button
+                data-list-menu-trigger="true"
                 onClick={() => setShowListMenu(!showListMenu)}
                 className="flex items-center space-x-2 text-left group focus:outline-none"
               >
@@ -613,6 +704,7 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-[10px] text-slate-400 italic hidden sm:inline">Role para recolher</span>
               <button
                 type="button"
+                data-quick-control-trigger="true"
                 onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
                 className="w-9 h-9 rounded-full bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center justify-center text-slate-700 dark:text-slate-200 transition-all active:scale-95"
                 title="Central de Controle"
@@ -626,62 +718,6 @@ export const Header: React.FC<HeaderProps> = ({
         </header>
       )}
 
-      {/* Modals Compartilhados */}
-      <HouseholdModal
-        isOpen={isHouseholdOpen}
-        onClose={() => setIsHouseholdOpen(false)}
-      />
-
-      <InstallPwaModal
-        isOpen={isInstallPwaOpen}
-        onClose={() => setIsInstallPwaOpen(false)}
-      />
-
-      <NotificationModal
-        isOpen={isNotificationOpen}
-        onClose={() => {
-          setIsNotificationOpen(false);
-          setNotificationPermission(getNotificationPermission());
-        }}
-        onOpenInstallGuide={() => setIsInstallPwaOpen(true)}
-      />
-
-      {/* Modal de Criação de Lista */}
-      {showNewListPrompt && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">
-              Criar Nova Lista
-            </h3>
-            <form onSubmit={handleCreateList} className="space-y-3">
-              <input
-                type="text"
-                value={newListTitle}
-                onChange={(e) => setNewListTitle(e.target.value)}
-                placeholder="Ex: Compras da Semana, Churrasco..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                autoFocus
-              />
-              <div className="flex space-x-2 pt-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setShowNewListPrompt(false)}
-                  className="px-3.5 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={!newListTitle.trim()}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl shadow-md"
-                >
-                  Criar Lista
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
       {/* Modals Compartilhados */}
       <HouseholdModal
         isOpen={isHouseholdOpen}
