@@ -182,6 +182,18 @@
       <span class="badge-version">v1.4.13</span>
     </div>
 
+    <!-- Seletor de Modelo de Topo (1 a 5) -->
+    <label style="font-size: 12px; color: #34d399; font-weight: 700; display: flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); padding: 4px 10px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.3);">
+      🎨 Topo:
+      <select id="modelSelect" onchange="changeModel()" style="background: #064e3b; border-color: #059669; font-weight: 700; color: #a7f3d0;">
+        <option value="1" selected>Modelo 1: Apple Native Clean (Perfil Único)</option>
+        <option value="2">Modelo 2: Hero Unificado (Funde com Card Verde)</option>
+        <option value="3">Modelo 3: Cápsula Flutuante (Floating Island)</option>
+        <option value="4">Modelo 4: Micro-Barra 34px (Ultra-Densa)</option>
+        <option value="5">Modelo 5: Auto-Hide no Scroll (Safari/Telegram)</option>
+      </select>
+    </label>
+
     <label style="font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
       Aparelho:
       <select id="deviceSelect" onchange="changeDevice()">
@@ -216,6 +228,28 @@
     <a href="/" target="_blank" class="btn-emerald" title="Abrir em tela cheia no navegador">
       ↗ Abrir em Tela Cheia
     </a>
+  </div>
+
+  <!-- Model Info Banner (Explica o modelo ativo) -->
+  <div id="modelInfoBanner" style="max-width: 680px; width: 100%; margin-bottom: 20px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(51, 65, 85, 0.7); border-radius: 16px; padding: 14px 18px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); backdrop-filter: blur(8px);">
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span id="modelBadge" style="font-size: 11px; font-weight: 800; background: #059669; color: white; padding: 2px 8px; border-radius: 6px;">MODELO 1</span>
+        <h3 id="modelTitle" style="font-size: 14px; font-weight: 700; color: #f8fafc;">Apple Native Clean (Recomendado)</h3>
+      </div>
+      <span id="modelRef" style="font-size: 11px; color: #94a3b8;">Referência: <b>Apple Reminders & Notas</b></span>
+    </div>
+    <p id="modelDesc" style="font-size: 12px; color: #cbd5e1; line-height: 1.5; margin-bottom: 10px;">
+      Fundo 100% transparente integrado ao fundo da página (sem caixa retangular escura e sem borda divisória). Elimina os 5 botões espremidos e os agrupa em <b>1 único botão elegante de Central de Controle</b>. Zero poluição visual.
+    </p>
+    <!-- Botões de Troca Rápida de Modelo -->
+    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+      <button type="button" onclick="quickSelectModel(1)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M1: Apple Clean</button>
+      <button type="button" onclick="quickSelectModel(2)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M2: Hero Unificado</button>
+      <button type="button" onclick="quickSelectModel(3)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M3: Cápsula Flutuante</button>
+      <button type="button" onclick="quickSelectModel(4)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M4: Micro 34px</button>
+      <button type="button" onclick="quickSelectModel(5)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M5: Auto-Hide Scroll</button>
+    </div>
   </div>
 
   <!-- Phone Mockup Container -->
@@ -337,12 +371,75 @@
       wrapper.style.transform = `scale(${scale})`;
     }
 
+    const MODEL_DETAILS = {
+      1: {
+        badge: 'MODELO 1',
+        title: 'Apple Native Clean (Recomendado)',
+        ref: 'Apple Reminders & Notas',
+        desc: 'Fundo 100% transparente integrado ao fundo da página (sem caixa retangular escura e sem borda divisória). Elimina os 5 botões espremidos e os agrupa em <b>1 único botão elegante de Central de Controle</b>. Zero poluição visual.'
+      },
+      2: {
+        badge: 'MODELO 2',
+        title: 'Hero Unificado All-in-One',
+        ref: 'Nubank, Revolut & Spotify',
+        desc: 'O cabeçalho e o card verde se fundem em <b>um único bloco contínuo no topo</b>! A cor esmeralda sobe até a barra de status do iPhone. Elimina 100% do espaço perdido entre o topo e o conteúdo.'
+      },
+      3: {
+        badge: 'MODELO 3',
+        title: 'Cápsula Flutuante (Floating Island)',
+        ref: 'Arc Search & Things 3',
+        desc: 'Uma <b>ilha flutuante arredondada independente</b> que flutua com margens laterais logo abaixo da Dynamic Island. Efeito moderno e sensação tátil de widget iOS.'
+      },
+      4: {
+        badge: 'MODELO 4',
+        title: 'Micro-Barra 34px Minimalista',
+        ref: 'Linear Mobile & Notion',
+        desc: 'Redução radical de altura útil para apenas <b>34px</b>. Tipografia compacta de alta precisão e 4 micro-ícones de 14px. Máxima densidade de itens na tela.'
+      },
+      5: {
+        badge: 'MODELO 5',
+        title: 'Auto-Hide Inteligente no Scroll',
+        ref: 'Safari, Telegram & Instagram',
+        desc: 'O cabeçalho <b>se recolhe suavemente para cima ao rolar os produtos para baixo</b>, deixando 100% da tela para as compras. Ao rolar levemente para cima, ele reaparece na hora!'
+      }
+    };
+
+    function updateModelInfo(m) {
+      const info = MODEL_DETAILS[m] || MODEL_DETAILS[1];
+      document.getElementById('modelBadge').textContent = info.badge;
+      document.getElementById('modelTitle').textContent = info.title;
+      document.getElementById('modelRef').innerHTML = 'Referência: <b>' + info.ref + '</b>';
+      document.getElementById('modelDesc').innerHTML = info.desc;
+    }
+
+    function changeModel() {
+      const model = document.getElementById('modelSelect').value;
+      localStorage.setItem('organocasa_header_model', model);
+      updateModelInfo(model);
+      const frame = document.getElementById('appFrame');
+      const url = new URL(frame.src, window.location.href);
+      url.searchParams.set('header_model', model);
+      frame.src = url.toString();
+    }
+
+    function quickSelectModel(m) {
+      document.getElementById('modelSelect').value = String(m);
+      changeModel();
+    }
+
     function reloadFrame() {
       frame.src = frame.src;
     }
 
-    // Initial scale adjustment based on screen height
+    // Initial scale and model adjustment based on screen height
     window.addEventListener('DOMContentLoaded', () => {
+      const savedModel = localStorage.getItem('organocasa_header_model') || '1';
+      document.getElementById('modelSelect').value = savedModel;
+      updateModelInfo(savedModel);
+      const initialUrl = new URL(frame.src, window.location.href);
+      initialUrl.searchParams.set('header_model', savedModel);
+      frame.src = initialUrl.toString();
+
       const availableH = window.innerHeight - 130;
       if (availableH < 956) {
         const fittingScale = Math.min(0.9, Math.max(0.65, Math.floor((availableH / 956) * 10) / 10));
