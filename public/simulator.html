@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OrganoCasa — Simulador Mobile (iPhone 17 Pro Max)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 50% 20%, #1e293b 0%, #090d16 100%);
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      overflow-x: hidden;
+    }
+    .top-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(30, 41, 59, 0.9);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 10px 20px;
+      border-radius: 9999px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.6);
+      flex-wrap: wrap;
+      justify-content: center;
+      z-index: 100;
+    }
+    .badge-version {
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34d399;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    select, button, a {
+      background: #334155;
+      color: #f8fafc;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    select:hover, button:hover, a:hover {
+      background: #475569;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .btn-emerald {
+      background: #059669;
+      border-color: #10b981;
+    }
+    .btn-emerald:hover {
+      background: #10b981;
+    }
+    /* Phone Mockup Container */
+    .phone-viewport-wrapper {
+      transform-origin: top center;
+      transition: transform 0.2s ease;
+      display: flex;
+      justify-content: center;
+      margin-bottom: 40px;
+    }
+    .phone-chassis {
+      position: relative;
+      background: #020617;
+      border-radius: 56px;
+      box-shadow:
+        0 0 0 4px #334155,
+        0 0 0 9px #0f172a,
+        0 30px 60px -10px rgba(0, 0, 0, 0.8),
+        0 0 100px rgba(16, 185, 129, 0.15);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Dynamic Island Overlay */
+    .dynamic-island {
+      position: absolute;
+      top: 13px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 125px;
+      height: 35px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      pointer-events: none;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.7);
+    }
+    .camera-lens {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #2a3b5c, #090e17 80%);
+      border: 1px solid #1f293d;
+      margin-left: auto;
+    }
+    .sensor-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #0c1220;
+    }
+    /* Simulated Status Bar */
+    .status-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 54px;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 32px;
+      font-size: 14px;
+      font-weight: 600;
+      pointer-events: none;
+      color: #94a3b8;
+    }
+    .status-bar-icons {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+    /* Home Indicator */
+    .home-indicator {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 135px;
+      height: 4.5px;
+      background: rgba(255, 255, 255, 0.5);
+      border-radius: 9999px;
+      z-index: 50;
+      pointer-events: none;
+    }
+    /* App iframe */
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #020617;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Controls Bar -->
+  <div class="top-controls">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-weight: 700; font-size: 13px;">📱 OrganoCasa Simulator</span>
+      <span class="badge-version">v1.4.11</span>
+    </div>
+
+    <label style="font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
+      Aparelho:
+      <select id="deviceSelect" onchange="changeDevice()">
+        <option value="440x956:59:22" selected>iPhone 17 Pro Max (440 × 956)</option>
+        <option value="393x852:54:20">iPhone 16 / 15 Pro (393 × 852)</option>
+        <option value="412x915:36:12">Google Pixel 8 / S24 (412 × 915)</option>
+      </select>
+    </label>
+
+    <label style="font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
+      Tema:
+      <select id="themeSelect" onchange="toggleTheme()">
+        <option value="dark" selected>Modo Escuro (Dark)</option>
+        <option value="light">Modo Claro (Light)</option>
+      </select>
+    </label>
+
+    <label style="font-size: 12px; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
+      Zoom:
+      <select id="scaleSelect" onchange="changeScale()">
+        <option value="1">100%</option>
+        <option value="0.9" selected>90%</option>
+        <option value="0.8">80%</option>
+        <option value="0.7">70%</option>
+      </select>
+    </label>
+
+    <button onclick="reloadFrame()" title="Recarregar aplicativo">
+      🔄 Recarregar
+    </button>
+
+    <a href="/" target="_blank" class="btn-emerald" title="Abrir em tela cheia no navegador">
+      ↗ Abrir em Tela Cheia
+    </a>
+  </div>
+
+  <!-- Phone Mockup Container -->
+  <div class="phone-viewport-wrapper" id="phoneWrapper">
+    <div class="phone-chassis" id="phoneChassis" style="width: 440px; height: 956px;">
+      <!-- Dynamic Island -->
+      <div class="dynamic-island" id="dynamicIsland">
+        <div class="sensor-dot"></div>
+        <div class="camera-lens"></div>
+      </div>
+
+      <!-- iOS Status Bar Clock & Icons -->
+      <div class="status-bar" id="statusBar">
+        <span id="statusBarClock">09:41</span>
+        <div class="status-bar-icons">
+          <span>5G</span>
+          <span>􀙇</span>
+          <span>􀛨 100%</span>
+        </div>
+      </div>
+
+      <!-- The Live Application -->
+      <iframe id="appFrame" src="/" title="OrganoCasa App"></iframe>
+
+      <!-- iOS Home Indicator -->
+      <div class="home-indicator" id="homeIndicator"></div>
+    </div>
+  </div>
+
+  <script>
+    let currentTopInset = 59;
+    let currentBottomInset = 22;
+
+    function applySafeAreaInsets() {
+      const frame = document.getElementById('appFrame');
+      try {
+        const doc = frame.contentDocument;
+        if (!doc) return;
+        let styleTag = doc.getElementById('simulator-safe-area-style');
+        if (!styleTag) {
+          styleTag = doc.createElement('style');
+          styleTag.id = 'simulator-safe-area-style';
+          doc.head.appendChild(styleTag);
+        }
+        styleTag.textContent = `
+          .header-safe { padding-top: ${currentTopInset}px !important; }
+          .nav-safe-bottom { padding-bottom: ${currentBottomInset}px !important; }
+          .fab-above-nav { bottom: calc(3.5rem + ${currentBottomInset}px + 0.75rem) !important; }
+        `;
+      } catch (e) {
+        console.warn('Cannot inject into iframe:', e);
+      }
+    }
+
+    const frame = document.getElementById('appFrame');
+    frame.addEventListener('load', () => {
+      applySafeAreaInsets();
+      syncThemeToIframe();
+    });
+
+    // Update status bar clock with real device time
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      document.getElementById('statusBarClock').textContent = `${h}:${m}`;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    function changeDevice() {
+      const select = document.getElementById('deviceSelect');
+      const [res, top, bot] = select.value.split(':');
+      const [w, h] = res.split('x').map(Number);
+      currentTopInset = Number(top);
+      currentBottomInset = Number(bot);
+
+      const chassis = document.getElementById('phoneChassis');
+      chassis.style.width = w + 'px';
+      chassis.style.height = h + 'px';
+
+      const island = document.getElementById('dynamicIsland');
+      island.style.display = select.value.includes('Pixel') ? 'none' : 'flex';
+
+      applySafeAreaInsets();
+    }
+
+    function toggleTheme() {
+      syncThemeToIframe();
+    }
+
+    function syncThemeToIframe() {
+      const theme = document.getElementById('themeSelect').value;
+      const statusBar = document.getElementById('statusBar');
+      const homeIndicator = document.getElementById('homeIndicator');
+
+      if (theme === 'dark') {
+        statusBar.style.color = '#94a3b8';
+        homeIndicator.style.background = 'rgba(255, 255, 255, 0.5)';
+      } else {
+        statusBar.style.color = '#334155';
+        homeIndicator.style.background = 'rgba(0, 0, 0, 0.4)';
+      }
+
+      try {
+        const doc = frame.contentDocument;
+        if (doc) {
+          doc.documentElement.classList.toggle('dark', theme === 'dark');
+          if (frame.contentWindow?.localStorage) {
+            frame.contentWindow.localStorage.setItem('organocasa_theme', theme);
+          }
+        }
+      } catch (e) {}
+    }
+
+    function changeScale() {
+      const scale = document.getElementById('scaleSelect').value;
+      const wrapper = document.getElementById('phoneWrapper');
+      wrapper.style.transform = `scale(${scale})`;
+    }
+
+    function reloadFrame() {
+      frame.src = frame.src;
+    }
+
+    // Initial scale adjustment based on screen height
+    window.addEventListener('DOMContentLoaded', () => {
+      const availableH = window.innerHeight - 130;
+      if (availableH < 956) {
+        const fittingScale = Math.min(0.9, Math.max(0.65, Math.floor((availableH / 956) * 10) / 10));
+        document.getElementById('scaleSelect').value = String(fittingScale);
+        changeScale();
+      }
+    });
+  </script>
+</body>
+</html>
