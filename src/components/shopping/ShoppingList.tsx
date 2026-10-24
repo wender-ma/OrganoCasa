@@ -14,7 +14,6 @@ import {
 import { ProductCategory, Product, ShoppingListItem } from '../../types';
 import { useShoppingList } from '../../hooks/useShoppingList';
 import { useProducts } from '../../hooks/useProducts';
-import { CategoryPills } from './CategoryPills';
 import { ShoppingItemCard } from './ShoppingItemCard';
 import { AddItemModal } from './AddItemModal';
 import { EditItemModal } from './EditItemModal';
@@ -62,11 +61,11 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
 
   const { products } = useProducts();
 
-  const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'Todas'>('Todas');
+  const [selectedCategory, setSelectedCategory] = useState<ProductCategory | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ShoppingListItem | null>(null);
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
-  const [isCompletedExpanded, setIsCompletedExpanded] = useState(true);
+  const [isCompletedExpanded, setIsCompletedExpanded] = useState(false);
   const [isPastMonthsExpanded, setIsPastMonthsExpanded] = useState(false);
   const [completingItemIds, setCompletingItemIds] = useState<Set<string>>(new Set());
   const completingTimeoutsRef = React.useRef<Map<string, NodeJS.Timeout>>(new Map());
@@ -117,17 +116,17 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
     ];
   }, [items]);
 
-  // Se a categoria selecionada não tiver mais itens ativos, volta automaticamente para 'Todas'
+  // Se a categoria selecionada não tiver mais itens ativos, volta automaticamente para null (ver todas)
   React.useEffect(() => {
-    if (selectedCategory !== 'Todas' && !activeCategories.includes(selectedCategory)) {
-      setSelectedCategory('Todas');
+    if (selectedCategory && !activeCategories.includes(selectedCategory)) {
+      setSelectedCategory(null);
     }
   }, [activeCategories, selectedCategory]);
 
-  // Filter items by category
-  const filteredItems = selectedCategory === 'Todas'
-    ? items
-    : items.filter((item) => item.category === selectedCategory);
+  // Filter items by category (se nenhuma selecionada, exibe todas)
+  const filteredItems = selectedCategory
+    ? items.filter((item) => item.category === selectedCategory)
+    : items;
 
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -244,13 +243,6 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
         </div>
       </div>
 
-      {/* Category Pills Filter — exibe apenas as categorias ativas no momento */}
-      <CategoryPills
-        selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
-        categories={activeCategories}
-      />
-
       {/* Shopping List Items Container */}
       {filteredItems.length === 0 ? (
         <div className="text-center py-12 px-4 bg-white dark:bg-slate-850 rounded-3xl border border-dashed border-slate-300 dark:border-slate-700 space-y-3">
@@ -290,18 +282,45 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
             </div>
           ) : (
             <div className="space-y-5">
-              {pendingCategoriesPresent.map((cat) => {
+              {pendingCategoriesPresent.map((cat, idx) => {
                 const categoryItems = pendingItems.filter((i) => i.category === cat);
                 const icon = CATEGORY_ICONS[cat] || '📦';
 
                 return (
                   <div key={cat} className="space-y-2">
-                    {/* Category Subheader */}
-                    <div className="flex items-center space-x-2 px-1">
-                      <span className="text-sm">{icon}</span>
-                      <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 tracking-wide uppercase">
-                        {cat} ({categoryItems.length})
-                      </h3>
+                    {/* Category Subheader com pílulas de filtro ao lado */}
+                    <div className="flex items-center justify-between px-1 gap-2">
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <span className="text-sm">{icon}</span>
+                        <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 tracking-wide uppercase">
+                          {cat} ({categoryItems.length})
+                        </h3>
+                      </div>
+
+                      {/* Pílulas de categorias ativas (posicionadas ao lado no cabeçalho do primeiro grupo) */}
+                      {idx === 0 && activeCategories.length > 0 && (
+                        <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-0.5">
+                          {activeCategories.map((c) => {
+                            const isSelected = selectedCategory === c;
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                onClick={() => setSelectedCategory(isSelected ? null : c)}
+                                className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-150 flex items-center space-x-1 shadow-2xs ${
+                                  isSelected
+                                    ? 'bg-emerald-600 text-white shadow-emerald-500/20'
+                                    : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750'
+                                }`}
+                                title={isSelected ? `Remover filtro de ${c} (ver todas)` : `Filtrar apenas ${c}`}
+                              >
+                                <span>{CATEGORY_ICONS[c] || '📦'}</span>
+                                <span>{c}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     {/* Items under this category */}

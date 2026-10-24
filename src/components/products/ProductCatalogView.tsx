@@ -13,7 +13,7 @@ export const ProductCatalogView: React.FC = () => {
   const { addItem, updateItemQuantity, items: currentListItems } = useShoppingList();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<ProductCategory | 'Todas'>('Todas');
+  const [selectedCategory, setSelectedCategory] = useState<ProductCategory | null>(null);
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [addedToast, setAddedToast] = useState<string | null>(null);
@@ -38,14 +38,14 @@ export const ProductCatalogView: React.FC = () => {
   }, [products]);
 
   React.useEffect(() => {
-    if (selectedCategory !== 'Todas' && !activeCatalogCategories.includes(selectedCategory)) {
-      setSelectedCategory('Todas');
+    if (selectedCategory && !activeCatalogCategories.includes(selectedCategory)) {
+      setSelectedCategory(null);
     }
   }, [activeCatalogCategories, selectedCategory]);
 
   // Filter products
   const filteredProducts = products.filter((p) => {
-    if (selectedCategory !== 'Todas' && p.category !== selectedCategory) return false;
+    if (selectedCategory && p.category !== selectedCategory) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return p.name.toLowerCase().includes(q) || (p.barcode && p.barcode.includes(q));
