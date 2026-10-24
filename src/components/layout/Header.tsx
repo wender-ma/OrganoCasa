@@ -120,16 +120,16 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-4 py-2 header-safe shadow-2xs">
-      <div className="max-w-2xl mx-auto flex items-center justify-between">
+    <header className="relative z-40 flex-none bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-4 pb-1.5 header-safe">
+      <div className="max-w-2xl mx-auto flex items-center justify-between pt-1.5">
         {/* Brand & List Selector */}
         <div className="relative">
           <button
             onClick={() => setShowListMenu(!showListMenu)}
             className="flex items-center space-x-2 text-left group focus:outline-none"
           >
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
-              <ShoppingBag className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-sm">
+              <ShoppingBag className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center space-x-1.5">

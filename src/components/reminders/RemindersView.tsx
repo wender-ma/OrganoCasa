@@ -39,7 +39,7 @@ export const RemindersView: React.FC = () => {
   const pendingCount = reminders.filter((r) => !r.isCompleted).length;
 
   return (
-    <div className="space-y-4 pb-36 sm:pb-32">
+    <div className="space-y-4 pb-20">
       {/* Top Banner */}
       <div className="bg-gradient-to-br from-teal-600 to-emerald-700 rounded-3xl p-5 text-white shadow-xl shadow-teal-900/10 flex items-center justify-between">
         <div>
@@ -169,7 +169,7 @@ export const RemindersView: React.FC = () => {
       )}
 
       {/* FAB Add Reminder safely positioned above mobile navigation */}
-      <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] right-4 sm:right-6 z-40 pointer-events-auto">
+      <div className="fixed fab-above-nav right-4 sm:right-6 z-40 pointer-events-auto">
         <button
           onClick={() => {
             setEditingReminder(null);

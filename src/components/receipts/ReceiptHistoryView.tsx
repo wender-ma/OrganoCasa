@@ -64,7 +64,7 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
   const mostFrequentStore = Object.entries(storeCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
 
   return (
-    <div className="space-y-4 pb-28">
+    <div className="space-y-4 pb-6">
       {/* Top Banner */}
       <div className="bg-gradient-to-br from-indigo-700 to-slate-900 rounded-3xl p-5 text-white shadow-xl flex items-center justify-between">
         <div>

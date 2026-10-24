@@ -22,6 +22,19 @@
   .header-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+  /* Barra inferior enxuta (v1.4.11): usa só parte da área do indicador Home do iPhone */
+  .nav-safe-bottom {
+    padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) * 0.55), 0.25rem);
+  }
+  /* FAB logo acima da barra inferior enxuta */
+  .fab-above-nav {
+    bottom: calc(3.5rem + max(calc(env(safe-area-inset-bottom, 0px) * 0.55), 0.25rem) + 0.75rem);
+  }
+  /* App Shell: ocupa exatamente a tela, documento não rola (scroll interno no <main>) */
+  .app-shell {
+    height: 100vh;
+    height: 100dvh;
+  }
   .modal-safe-top {
     padding-top: calc(env(safe-area-inset-top, 0px) + 1rem);
   }
@@ -35,9 +48,15 @@ html.dark {
   color-scheme: dark;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: #f8fafc;

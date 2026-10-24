@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/layout/Header';
 import { BottomNav, NavTab } from './components/layout/BottomNav';
 import { ShoppingList } from './components/shopping/ShoppingList';
@@ -34,6 +34,12 @@ const AppContent: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<NavTab>('shopping');
   const [isReceiptUploadOpen, setIsReceiptUploadOpen] = useState(false);
+  const mainScrollRef = useRef<HTMLElement>(null);
+
+  // Ao trocar de aba, volta o conteúdo para o topo (o scroll agora é interno ao <main>)
+  useEffect(() => {
+    mainScrollRef.current?.scrollTo({ top: 0 });
+  }, [activeTab]);
 
   // Reconciliation state
   const [reconciliationReceipt, setReconciliationReceipt] = useState<ParsedReceiptData | null>(null);
@@ -95,7 +101,10 @@ const AppContent: React.FC = () => {
   const pendingRemindersCount = reminders.filter((r) => !r.isCompleted).length;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
+    // App Shell (v1.4.11): o documento NUNCA rola. Apenas o <main> rola internamente.
+    // Isso impede que o iOS 26 aplique o efeito de desfoque (scroll-edge blur) sobre o
+    // cabeçalho, já que nenhum conteúdo passa por baixo da barra de status.
+    <div className="app-shell bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col overflow-hidden">
       {/* Top Header */}
       <Header
         activeList={activeList}
@@ -106,7 +115,11 @@ const AppContent: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-2xl w-full mx-auto p-4 sm:p-5">
+      <main
+        ref={mainScrollRef}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+      >
+        <div className="max-w-2xl w-full mx-auto px-4 pt-3 pb-4 sm:p-5">
         {activeTab === 'shopping' && (
           <ShoppingList onOpenReceiptUpload={() => setIsReceiptUploadOpen(true)} />
         )}
@@ -118,6 +131,7 @@ const AppContent: React.FC = () => {
         {activeTab === 'receipts' && (
           <ReceiptHistoryView onOpenUpload={() => setIsReceiptUploadOpen(true)} />
         )}
+        </div>
       </main>
 
       {/* Bottom Navigation */}

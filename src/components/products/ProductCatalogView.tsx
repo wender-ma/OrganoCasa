@@ -118,7 +118,7 @@ export const ProductCatalogView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4 pb-24">
+    <div className="space-y-4 pb-6">
       {/* Top Banner */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-5 text-white shadow-xl">
         <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
