@@ -5,12 +5,20 @@ import { INITIAL_CATEGORIES, CATEGORY_ICONS } from '../../db/seed';
 interface CategoryPillsProps {
   selectedCategory: ProductCategory | 'Todas';
   onSelectCategory: (cat: ProductCategory | 'Todas') => void;
+  categories?: ProductCategory[];
 }
 
 export const CategoryPills: React.FC<CategoryPillsProps> = ({
   selectedCategory,
-  onSelectCategory
+  onSelectCategory,
+  categories
 }) => {
+  const visibleCategories = categories ?? INITIAL_CATEGORIES;
+
+  if (visibleCategories.length === 0) {
+    return null;
+  }
+
   return (
     <div className="flex space-x-2 overflow-x-auto no-scrollbar py-2 px-4 -mx-4">
       <button
@@ -25,7 +33,7 @@ export const CategoryPills: React.FC<CategoryPillsProps> = ({
         <span>Todas</span>
       </button>
 
-      {INITIAL_CATEGORIES.map((cat) => (
+      {visibleCategories.map((cat) => (
         <button
           key={cat}
           onClick={() => onSelectCategory(cat)}

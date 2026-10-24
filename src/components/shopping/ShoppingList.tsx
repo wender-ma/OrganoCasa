@@ -19,7 +19,7 @@ import { ShoppingItemCard } from './ShoppingItemCard';
 import { AddItemModal } from './AddItemModal';
 import { EditItemModal } from './EditItemModal';
 import { PriceHistoryModal } from './PriceHistoryModal';
-import { CATEGORY_ICONS } from '../../db/seed';
+import { CATEGORY_ICONS, INITIAL_CATEGORIES } from '../../db/seed';
 
 function getItemMonthKey(item: ShoppingListItem): string {
   const dateStr = item.updatedAt || item.createdAt;
@@ -106,6 +106,23 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
       toggleItem(id);
     }
   };
+
+  // Categorias ativas no momento (apenas categorias que possuem itens pendentes na lista)
+  const activeCategories = React.useMemo<ProductCategory[]>(() => {
+    const allPending = items.filter((item) => !item.isChecked);
+    const presentSet = new Set(allPending.map((item) => item.category));
+    return [
+      ...INITIAL_CATEGORIES.filter((cat) => presentSet.has(cat)),
+      ...Array.from(presentSet).filter((cat) => !INITIAL_CATEGORIES.includes(cat))
+    ];
+  }, [items]);
+
+  // Se a categoria selecionada não tiver mais itens ativos, volta automaticamente para 'Todas'
+  React.useEffect(() => {
+    if (selectedCategory !== 'Todas' && !activeCategories.includes(selectedCategory)) {
+      setSelectedCategory('Todas');
+    }
+  }, [activeCategories, selectedCategory]);
 
   // Filter items by category
   const filteredItems = selectedCategory === 'Todas'
@@ -227,10 +244,11 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
         </div>
       </div>
 
-      {/* Category Pills Filter */}
+      {/* Category Pills Filter — exibe apenas as categorias ativas no momento */}
       <CategoryPills
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
+        categories={activeCategories}
       />
 
       {/* Shopping List Items Container */}

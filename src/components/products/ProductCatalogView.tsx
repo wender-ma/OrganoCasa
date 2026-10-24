@@ -28,6 +28,21 @@ export const ProductCatalogView: React.FC = () => {
   const [editBarcode, setEditBarcode] = useState('');
   const [editImageUrl, setEditImageUrl] = useState('');
 
+  // Categorias ativas no catálogo (apenas categorias que possuem produtos cadastrados)
+  const activeCatalogCategories = React.useMemo<ProductCategory[]>(() => {
+    const presentSet = new Set(products.map((p) => p.category));
+    return [
+      ...INITIAL_CATEGORIES.filter((cat) => presentSet.has(cat)),
+      ...Array.from(presentSet).filter((cat) => !INITIAL_CATEGORIES.includes(cat))
+    ];
+  }, [products]);
+
+  React.useEffect(() => {
+    if (selectedCategory !== 'Todas' && !activeCatalogCategories.includes(selectedCategory)) {
+      setSelectedCategory('Todas');
+    }
+  }, [activeCatalogCategories, selectedCategory]);
+
   // Filter products
   const filteredProducts = products.filter((p) => {
     if (selectedCategory !== 'Todas' && p.category !== selectedCategory) return false;
@@ -156,6 +171,7 @@ export const ProductCatalogView: React.FC = () => {
       <CategoryPills
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
+        categories={activeCatalogCategories}
       />
 
       {/* Products Grid */}
