@@ -179,18 +179,23 @@
   <div class="top-controls">
     <div style="display: flex; align-items: center; gap: 8px;">
       <span style="font-weight: 700; font-size: 13px;">📱 OrganoCasa Simulator</span>
-      <span class="badge-version">v1.4.14</span>
+      <span class="badge-version">v1.4.15</span>
     </div>
 
-    <!-- Seletor de Modelo de Topo (1 a 5) -->
+    <!-- Seletor de Modelo de Topo (1 a 10) -->
     <label style="font-size: 12px; color: #34d399; font-weight: 700; display: flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); padding: 4px 10px; border-radius: 9999px; border: 1px solid rgba(16, 185, 129, 0.3);">
       🎨 Topo:
       <select id="modelSelect" onchange="changeModel()" style="background: #064e3b; border-color: #059669; font-weight: 700; color: #a7f3d0;">
-        <option value="1" selected>Modelo 1: Apple Native Clean (Perfil Único)</option>
-        <option value="2">Modelo 2: Hero Unificado (Funde com Card Verde)</option>
-        <option value="3">Modelo 3: Cápsula Flutuante (Floating Island)</option>
-        <option value="4">Modelo 4: Micro-Barra 34px (Ultra-Densa)</option>
-        <option value="5">Modelo 5: Auto-Hide no Scroll (Safari/Telegram)</option>
+        <option value="1">M1: Apple Native Clean (Perfil Único)</option>
+        <option value="2">M2: Hero Unificado (Funde com Card Verde)</option>
+        <option value="3">M3: Cápsula Flutuante (Things 3 / Arc)</option>
+        <option value="4" selected>M4: Micro 34px Dark (Favorito do Usuário)</option>
+        <option value="5">M5: Micro 34px Verde (Esmeralda OrganoCasa)</option>
+        <option value="6">M6: Instagram Auto-Hide (Colapso 100% Real)</option>
+        <option value="7">M7: Apple iOS Large Title (Apple Music/Podcasts)</option>
+        <option value="8">M8: WhatsApp Compact (Chat Header Style)</option>
+        <option value="9">M9: Airbnb Floating Pill (Widget Flutuante)</option>
+        <option value="10">M10: Spotify Timeline Glass (Progresso na Borda)</option>
       </select>
     </label>
 
@@ -242,13 +247,20 @@
     <p id="modelDesc" style="font-size: 12px; color: #cbd5e1; line-height: 1.5; margin-bottom: 10px;">
       Fundo 100% transparente integrado ao fundo da página (sem caixa retangular escura e sem borda divisória). Elimina os 5 botões espremidos e os agrupa em <b>1 único botão elegante de Central de Controle</b>. Zero poluição visual.
     </p>
-    <!-- Botões de Troca Rápida de Modelo -->
-    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-      <button type="button" onclick="quickSelectModel(1)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M1: Apple Clean</button>
-      <button type="button" onclick="quickSelectModel(2)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M2: Hero Unificado</button>
-      <button type="button" onclick="quickSelectModel(3)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M3: Cápsula Flutuante</button>
-      <button type="button" onclick="quickSelectModel(4)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M4: Micro 34px</button>
-      <button type="button" onclick="quickSelectModel(5)" style="padding: 4px 10px; font-size: 11px; border-radius: 6px;">M5: Auto-Hide Scroll</button>
+    <!-- Botões de Troca Rápida de Modelo (10 Modelos) -->
+    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 5px;">
+      <button type="button" onclick="quickSelectModel(1)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M1: Apple Clean</button>
+      <button type="button" onclick="quickSelectModel(2)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M2: Hero Verde</button>
+      <button type="button" onclick="quickSelectModel(3)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M3: Cápsula</button>
+      <button type="button" onclick="quickSelectModel(4)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; border-color: #10b981; color: #6ee7b7;">★ M4: Micro Dark</button>
+      <button type="button" onclick="quickSelectModel(5)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; background: #065f46; color: #a7f3d0; border-color: #059669;">★ M5: Micro Verde</button>
+    </div>
+    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+      <button type="button" onclick="quickSelectModel(6)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M6: Insta Auto-Hide</button>
+      <button type="button" onclick="quickSelectModel(7)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M7: Large Title</button>
+      <button type="button" onclick="quickSelectModel(8)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M8: WhatsApp</button>
+      <button type="button" onclick="quickSelectModel(9)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M9: Airbnb Pill</button>
+      <button type="button" onclick="quickSelectModel(10)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M10: Spotify Glass</button>
     </div>
   </div>
 
@@ -374,33 +386,63 @@
     const MODEL_DETAILS = {
       1: {
         badge: 'MODELO 1',
-        title: 'Apple Native Clean (Recomendado)',
+        title: 'Apple Native Clean',
         ref: 'Apple Reminders & Notas',
-        desc: 'Fundo 100% transparente integrado ao fundo da página (sem caixa retangular escura e sem borda divisória). Elimina os 5 botões espremidos e os agrupa em <b>1 único botão elegante de Central de Controle</b>. Zero poluição visual.'
+        desc: 'Fundo 100% transparente integrado ao fundo nativo (sem caixa escura e sem borda). Elimina a fileira de 5 ícones e reúne tudo em <b>1 único botão elegante de Central de Controle</b>. Zero poluição visual.'
       },
       2: {
         badge: 'MODELO 2',
         title: 'Hero Unificado All-in-One',
         ref: 'Nubank, Revolut & Spotify',
-        desc: 'O cabeçalho e o card verde se fundem em <b>um único bloco contínuo no topo</b>! A cor esmeralda sobe até a barra de status do iPhone. Elimina 100% do espaço perdido entre o topo e o conteúdo.'
+        desc: 'O cabeçalho e o card verde se fundem em <b>um único bloco contínuo no topo</b>! A cor esmeralda sobe até a barra de status do iPhone, eliminando qualquer espaço perdido.'
       },
       3: {
         badge: 'MODELO 3',
         title: 'Cápsula Flutuante (Floating Island)',
         ref: 'Arc Search & Things 3',
-        desc: 'Uma <b>ilha flutuante arredondada independente</b> que flutua com margens laterais logo abaixo da Dynamic Island. Efeito moderno e sensação tátil de widget iOS.'
+        desc: 'Uma <b>ilha flutuante arredondada independente</b> com laterais transparentes sob a Dynamic Island. Efeito moderno e sensação tátil de widget iOS.'
       },
       4: {
-        badge: 'MODELO 4',
-        title: 'Micro-Barra 34px Minimalista',
+        badge: 'MODELO 4 (FAVORITO ATUAL)',
+        title: 'Micro-Barra 34px Minimalista Dark',
         ref: 'Linear Mobile & Notion',
-        desc: 'Redução radical de altura útil para apenas <b>34px</b>. Tipografia compacta de alta precisão e 4 micro-ícones de 14px. Máxima densidade de itens na tela.'
+        desc: 'Redução radical de altura útil para apenas <b>34px</b> em tom escuro clean. Tipografia compacta de alta precisão e 4 micro-ícones de 14px. Máxima densidade de itens na tela.'
       },
       5: {
-        badge: 'MODELO 5',
-        title: 'Auto-Hide Inteligente no Scroll',
-        ref: 'Safari, Telegram & Instagram',
-        desc: 'O cabeçalho <b>se recolhe suavemente para cima ao rolar os produtos para baixo</b>, deixando 100% da tela para as compras. Ao rolar levemente para cima, ele reaparece na hora!'
+        badge: 'MODELO 5 (NOVO - PEDIDO PELO USUÁRIO)',
+        title: 'Micro-Barra 34px Esmeralda Verde',
+        ref: 'OrganoCasa Signature Green',
+        desc: 'A mesma micro-barra ultra-densa de 34px do Modelo 4, mas <b>vestida com o degradê verde esmeralda icônico</b> do OrganoCasa! Combina 100% com o card de compras e a identidade visual do app.'
+      },
+      6: {
+        badge: 'MODELO 6 (NOVO - AUTO-HIDE 100% REAL)',
+        title: 'Instagram Feed Imersivo (Sem Barra Branca)',
+        ref: 'Instagram Feed iOS',
+        desc: 'Correção total: o cabeçalho se recolhe com <b>colapso real de layout (-mt-28)</b>, permitindo que a lista ocupe 100% da tela do iPhone sob a Dynamic Island <b>SEM NENHUMA BARRA BRANCA</b>! Ao rolar para cima ou chegar ao topo, ele reaparece suavemente.'
+      },
+      7: {
+        badge: 'MODELO 7 (NOVO)',
+        title: 'Apple iOS Large Title Dinâmico',
+        ref: 'Apple Music, Podcasts & Arquivos iOS 18',
+        desc: 'O padrão oficial Human Interface Guidelines da Apple: no topo, o nome <b>OrganoCasa</b> aparece em destaque tipográfico amplo. Ao rolar a lista para baixo, ele se contrai suavemente em uma micro-barra translúcida compacta.'
+      },
+      8: {
+        badge: 'MODELO 8 (NOVO)',
+        title: 'WhatsApp / iMessage Compact Header',
+        ref: 'WhatsApp iOS & iMessage',
+        desc: 'Cabeçalho verde profundo estilo chat: avatar arredondado da lista à esquerda com indicador de status <b>● Online sincronizado</b> em linha única, e botões de ação à direita.'
+      },
+      9: {
+        badge: 'MODELO 9 (NOVO)',
+        title: 'Airbnb Floating Search Pill',
+        ref: 'Airbnb & Uber Mobile',
+        desc: 'Em vez de uma barra de ponta a ponta, é uma <b>pílula flutuante isolada centralizada</b> que parece um widget flutuando 12px abaixo da Dynamic Island, com o conteúdo rolando por trás.'
+      },
+      10: {
+        badge: 'MODELO 10 (NOVO)',
+        title: 'Spotify Timeline Glass (Progresso na Borda)',
+        ref: 'Spotify Now-Playing & YouTube Mobile',
+        desc: 'Barra ultra-fina semi-translúcida (liquid glass) com <b>linha de progresso das compras de 2.5px embutida diretamente na própria borda inferior</b>! Mostra a porcentagem exata preenchendo em tempo real.'
       }
     };
 
@@ -456,7 +498,7 @@
 
     // Initial scale and model adjustment based on screen height
     window.addEventListener('DOMContentLoaded', () => {
-      const savedModel = localStorage.getItem('organocasa_header_model') || '1';
+      const savedModel = localStorage.getItem('organocasa_header_model') || '4';
       document.getElementById('modelSelect').value = savedModel;
       updateModelInfo(savedModel);
       const initialUrl = new URL(frame.src, window.location.href);

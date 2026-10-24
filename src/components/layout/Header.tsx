@@ -38,17 +38,19 @@ function resolveInitialDarkMode(): boolean {
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
+const VALID_MODELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+
 function resolveInitialHeaderModel(): number {
-  if (typeof window === 'undefined') return 1;
+  if (typeof window === 'undefined') return 4;
   const urlParam = new URLSearchParams(window.location.search).get('header_model');
-  if (urlParam && ['1', '2', '3', '4', '5'].includes(urlParam)) {
+  if (urlParam && VALID_MODELS.includes(urlParam)) {
     return Number(urlParam);
   }
   const saved = localStorage.getItem(HEADER_MODEL_STORAGE_KEY);
-  if (saved && ['1', '2', '3', '4', '5'].includes(saved)) {
+  if (saved && VALID_MODELS.includes(saved)) {
     return Number(saved);
   }
-  return 1; // Padrão: Modelo 1 (Apple Native Clean)
+  return 4; // Padrão: Modelo 4 (Favorito do Usuário)
 }
 
 interface HeaderProps {
@@ -57,6 +59,8 @@ interface HeaderProps {
   onSelectList: (id: string) => void;
   onCreateList: (title: string) => void;
   isOnline: boolean;
+  itemsCount?: number;
+  completedCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -64,7 +68,9 @@ export const Header: React.FC<HeaderProps> = ({
   lists,
   onSelectList,
   onCreateList,
-  isOnline
+  isOnline,
+  itemsCount = 0,
+  completedCount = 0
 }) => {
   const [showListMenu, setShowListMenu] = useState(false);
   const [showNewListPrompt, setShowNewListPrompt] = useState(false);
@@ -76,10 +82,15 @@ export const Header: React.FC<HeaderProps> = ({
   const [syncStatus, setSyncStatus] = useState(getSyncStatus());
   const [isDark, setIsDark] = useState<boolean>(resolveInitialDarkMode);
 
-  // Modelos de Cabeçalho (1 a 5)
+  // Modelos de Cabeçalho (1 a 10)
   const [headerModel, setHeaderModel] = useState<number>(resolveInitialHeaderModel);
   const [showQuickControlMenu, setShowQuickControlMenu] = useState(false);
   const [isHeaderHidden, setIsHeaderHidden] = useState(false);
+  const [isScrolledTitle, setIsScrolledTitle] = useState(false);
+
+  const total = itemsCount;
+  const completed = completedCount;
+  const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   const quickControlRef = useRef<HTMLDivElement>(null);
   const listMenuRef = useRef<HTMLDivElement>(null);
@@ -130,7 +141,7 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     const checkModel = () => {
       const urlParam = new URLSearchParams(window.location.search).get('header_model');
-      if (urlParam && ['1', '2', '3', '4', '5'].includes(urlParam)) {
+      if (urlParam && VALID_MODELS.includes(urlParam)) {
         setHeaderModel(Number(urlParam));
       }
     };
@@ -138,9 +149,9 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('popstate', checkModel);
   }, []);
 
-  // Modelo 5: Auto-Hide no scroll para baixo, revela ao rolar para cima
+  // Modelo 6: Auto-Hide estilo Instagram (Colapso real de layout, zero barra branca)
   useEffect(() => {
-    if (headerModel !== 5) {
+    if (headerModel !== 6) {
       setIsHeaderHidden(false);
       return;
     }
@@ -151,12 +162,28 @@ export const Header: React.FC<HeaderProps> = ({
     const handleScroll = () => {
       const currentScrollTop = mainEl.scrollTop;
       const diff = currentScrollTop - lastScrollTop;
-      if (diff > 12 && currentScrollTop > 40) {
+      if (currentScrollTop <= 25) {
+        setIsHeaderHidden(false);
+      } else if (diff > 8 && currentScrollTop > 40) {
         setIsHeaderHidden(true);
-      } else if (diff < -12 || currentScrollTop <= 15) {
+      } else if (diff < -8) {
         setIsHeaderHidden(false);
       }
       lastScrollTop = currentScrollTop;
+    };
+
+    mainEl.addEventListener('scroll', handleScroll, { passive: true });
+    return () => mainEl.removeEventListener('scroll', handleScroll);
+  }, [headerModel]);
+
+  // Modelo 7: Efeito Large Title iOS (Apple Music / Podcasts)
+  useEffect(() => {
+    if (headerModel !== 7) return;
+    const mainEl = document.querySelector('main');
+    if (!mainEl) return;
+
+    const handleScroll = () => {
+      setIsScrolledTitle(mainEl.scrollTop > 35);
     };
 
     mainEl.addEventListener('scroll', handleScroll, { passive: true });
@@ -327,11 +354,11 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Seletor Rápido de Modelos de Topo */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="px-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center justify-between">
-              <span>Modelo do Topo</span>
+              <span>Modelo do Topo (10 Opções)</span>
               <span className="text-[10px] text-emerald-500 font-bold">M{headerModel} ativo</span>
             </div>
-            <div className="grid grid-cols-5 gap-1">
-              {[1, 2, 3, 4, 5].map((m) => (
+            <div className="grid grid-cols-5 gap-1.5">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -661,59 +688,392 @@ export const Header: React.FC<HeaderProps> = ({
       )}
 
       {/* ========================================================
-          MODELO 5: Auto-Hide no Scroll (Estilo Safari / Telegram / Instagram)
-          O cabeçalho se recolhe suavemente para cima ao rolar a lista para baixo,
-          e reaparece instantaneamente ao rolar para cima.
+          MODELO 5: Micro-Barra 34px Esmeralda Verde (M4 na cor Verde)
+          Mesma altura ultra-densa de 34px e micro-ícones do M4,
+          porém vestindo o verde esmeralda icônico do OrganoCasa!
           ======================================================== */}
       {headerModel === 5 && (
-        <header className={`sticky top-0 z-40 flex-none bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 px-4 py-1.5 header-safe shadow-2xs transition-all duration-300 ease-in-out ${
-          isHeaderHidden ? '-translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'
-        }`}>
-          <div className="max-w-2xl mx-auto flex items-center justify-between pt-1">
-            {/* Brand & List Selector */}
+        <header className="relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3 py-1 header-safe shadow-xs">
+          <div className="max-w-2xl mx-auto flex items-center justify-between">
+            {/* Brand compact em verde */}
             <div className="relative">
               <button
                 data-list-menu-trigger="true"
                 onClick={() => setShowListMenu(!showListMenu)}
-                className="flex items-center space-x-2 text-left group focus:outline-none"
+                className="flex items-center space-x-1.5 text-left focus:outline-none"
               >
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-xs">
-                  <ShoppingBag className="w-4 h-4" />
+                <div className="w-6 h-6 rounded-md bg-white/20 backdrop-blur-xs text-white border border-white/25 flex items-center justify-center shadow-2xs">
+                  <ShoppingBag className="w-3 h-3" />
+                </div>
+                <span className="font-bold text-xs text-white leading-none tracking-tight">
+                  OrganoCasa
+                </span>
+                <span className="text-[11px] text-emerald-200 truncate max-w-[130px]">
+                  › {activeList?.title || 'Compras'}
+                </span>
+                <ChevronDown className="w-3 h-3 text-emerald-200" />
+              </button>
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* 4 Micro Icons em branco/verde translúcido */}
+            <div className="relative flex items-center space-x-1">
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Tema"
+              >
+                {isDark ? <Sun className="w-3.5 h-3.5 text-amber-300" /> : <Moon className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleManualSync}
+                disabled={syncStatus.isSyncing}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Sincronizar"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-white' : ''}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsHouseholdOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
+                title="Família"
+              >
+                <Users className="w-3.5 h-3.5" />
+                {session && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-300" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsNotificationOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Notificações"
+              >
+                <Bell className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
+                title="Alternar Modelo"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 6: Instagram Feed Imersivo (True Auto-Hide)
+          Ao rolar para baixo, a barra física recolhe com margem negativa (-mt-28),
+          permitindo que a lista tome 100% da tela útil até a Dynamic Island,
+          SEM NENHUMA BARRA BRANCA ou espaço morto!
+          Ao rolar levemente para cima ou chegar ao topo, ela reaparece suavemente.
+          ======================================================== */}
+      {headerModel === 6 && (
+        <header className={`relative z-40 flex-none bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md text-white border-b border-slate-800 px-3 py-1 header-safe shadow-md transition-all duration-300 ease-out overflow-hidden ${
+          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none' : 'mt-0 opacity-100'
+        }`}>
+          <div className="max-w-2xl mx-auto flex items-center justify-between">
+            {/* Brand compact */}
+            <div className="relative">
+              <button
+                data-list-menu-trigger="true"
+                onClick={() => setShowListMenu(!showListMenu)}
+                className="flex items-center space-x-1.5 text-left focus:outline-none"
+              >
+                <div className="w-6 h-6 rounded-md bg-emerald-500 text-white flex items-center justify-center shadow-xs">
+                  <ShoppingBag className="w-3 h-3" />
+                </div>
+                <span className="font-bold text-xs text-white leading-none">
+                  OrganoCasa
+                </span>
+                <span className="text-[11px] text-emerald-400 truncate max-w-[130px]">
+                  › {activeList?.title || 'Compras'}
+                </span>
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* Hint & Control */}
+            <div className="relative flex items-center space-x-2">
+              <span className="text-[9px] text-slate-400 italic hidden sm:inline">Role p/ imersão</span>
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-transform active:scale-95"
+                title="Central de Controle"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 7: Apple iOS Large Title Dinâmico (Apple Music / Podcasts)
+          No topo: Título grande 'OrganoCasa' integrado e limpo.
+          Ao rolar: Contrai suavemente para uma micro-barra translúcida compacta.
+          ======================================================== */}
+      {headerModel === 7 && (
+        <header className={`relative z-40 flex-none transition-all duration-300 header-safe ${
+          isScrolledTitle 
+            ? 'bg-slate-900/90 dark:bg-slate-950/90 backdrop-blur-md border-b border-slate-800 py-1 shadow-xs' 
+            : 'bg-transparent border-none pt-1 pb-1'
+        }`}>
+          <div className="max-w-2xl mx-auto px-4 flex items-center justify-between">
+            {/* Se contraído: Título pequeno centralizado/alinhado */}
+            <div className="relative">
+              {isScrolledTitle ? (
+                <button
+                  data-list-menu-trigger="true"
+                  onClick={() => setShowListMenu(!showListMenu)}
+                  className="flex items-center space-x-1.5 animate-in fade-in duration-200"
+                >
+                  <span className="font-bold text-xs text-white">OrganoCasa</span>
+                  <span className="text-[10px] text-emerald-400 font-medium">› {activeList?.title || 'Compras'}</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+              ) : (
+                <button
+                  data-list-menu-trigger="true"
+                  onClick={() => setShowListMenu(!showListMenu)}
+                  className="flex items-center space-x-2 text-left animate-in fade-in duration-200"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-1">
+                      <h2 className="text-base font-extrabold text-slate-900 dark:text-white leading-tight">
+                        OrganoCasa
+                      </h2>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    </div>
+                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold truncate max-w-[180px]">
+                      {activeList?.title || 'Compras do Supermercado'}
+                    </p>
+                  </div>
+                </button>
+              )}
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* Right side controls */}
+            <div className="relative flex items-center space-x-1.5">
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="w-7 h-7 rounded-full bg-slate-200/70 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-all active:scale-95"
+                title="Central de Controle"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 8: WhatsApp / iMessage Compact (Chat Header)
+          Barra verde profunda com avatar da lista à esquerda,
+          status 'Online' e botões rápidos à direita.
+          ======================================================== */}
+      {headerModel === 8 && (
+        <header className="relative z-40 flex-none bg-slate-900 dark:bg-slate-950 border-b border-emerald-950/80 px-3 py-1 header-safe shadow-xs">
+          <div className="max-w-2xl mx-auto flex items-center justify-between">
+            {/* Avatar + Info */}
+            <div className="relative flex items-center space-x-2">
+              <button
+                data-list-menu-trigger="true"
+                onClick={() => setShowListMenu(!showListMenu)}
+                className="flex items-center space-x-2 text-left focus:outline-none"
+              >
+                <div className="relative">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 text-white flex items-center justify-center text-xs font-bold shadow-xs">
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                  </div>
+                  <span className={`absolute bottom-0 right-0 w-2 h-2 rounded-full ring-1 ring-slate-900 ${isOnline ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                 </div>
                 <div>
-                  <div className="flex items-center space-x-1.5">
-                    <h1 className="font-bold text-slate-900 dark:text-white text-base leading-tight">
-                      OrganoCasa
-                    </h1>
-                    <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/70 border border-emerald-300/50 dark:border-emerald-800/60 px-1.5 py-0.5 rounded-md leading-none">
-                      {APP_VERSION}
+                  <div className="flex items-center space-x-1">
+                    <span className="font-bold text-xs text-white leading-none">
+                      {activeList?.title || 'Compras'}
                     </span>
-                    <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-200" />
+                    <ChevronDown className="w-3 h-3 text-emerald-400" />
                   </div>
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium truncate max-w-[170px] sm:max-w-[240px]">
-                    {activeList?.title || 'Compras do Supermercado'}
-                  </p>
+                  <span className="text-[10px] text-emerald-400/90 font-medium leading-none">
+                    {isOnline ? '● sincronizado' : '○ offline'}
+                  </span>
                 </div>
               </button>
 
               {renderListSelectorDropdown()}
             </div>
 
-            {/* Right side */}
-            <div className="relative flex items-center space-x-2">
-              <span className="text-[10px] text-slate-400 italic hidden sm:inline">Role para recolher</span>
+            {/* Quick Actions */}
+            <div className="relative flex items-center space-x-1.5">
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                className="w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-slate-300 flex items-center justify-center transition-colors"
+                title="Tema"
+              >
+                {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5" />}
+              </button>
+
               <button
                 type="button"
                 data-quick-control-trigger="true"
                 onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
-                className="w-9 h-9 rounded-full bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xs flex items-center justify-center text-slate-700 dark:text-slate-200 transition-all active:scale-95"
+                className="w-7 h-7 rounded-full bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-400 border border-emerald-500/30 flex items-center justify-center transition-all active:scale-95"
                 title="Central de Controle"
               >
-                <SlidersHorizontal className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>
 
               {renderQuickControlMenu()}
             </div>
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 9: Airbnb Floating Search Pill (Widget Flutuante)
+          Pílula arredondada isolada que parece um widget flutuando 
+          com margens laterais sobre o conteúdo.
+          ======================================================== */}
+      {headerModel === 9 && (
+        <header className="relative z-40 flex-none bg-transparent border-none px-4 pt-1 pb-1 header-safe">
+          <div className="max-w-md mx-auto flex items-center justify-between px-3 py-1.5 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 shadow-lg">
+            {/* Pill Brand Button */}
+            <div className="relative">
+              <button
+                data-list-menu-trigger="true"
+                onClick={() => setShowListMenu(!showListMenu)}
+                className="flex items-center space-x-2 text-left focus:outline-none"
+              >
+                <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                  <ShoppingBag className="w-3 h-3" />
+                </div>
+                <div>
+                  <span className="font-bold text-xs text-slate-900 dark:text-white leading-none block">
+                    {activeList?.title || 'Compras'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 leading-none">
+                    OrganoCasa • Toque p/ trocar
+                  </span>
+                </div>
+              </button>
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* Pill Control Button */}
+            <div className="relative flex items-center space-x-1">
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 flex items-center justify-center transition-all active:scale-95"
+                title="Central de Controle"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 10: Spotify Timeline Glass (Micro-Barra com Progresso)
+          Barra ultra-fina semi-translúcida com linha de progresso
+          de 2.5px embutida diretamente na borda inferior da barra!
+          ======================================================== */}
+      {headerModel === 10 && (
+        <header className="relative z-40 flex-none bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md text-white px-3 py-1 header-safe shadow-2xs">
+          <div className="max-w-2xl mx-auto flex items-center justify-between">
+            {/* Brand + Live Progress Indicator */}
+            <div className="relative">
+              <button
+                data-list-menu-trigger="true"
+                onClick={() => setShowListMenu(!showListMenu)}
+                className="flex items-center space-x-2 text-left focus:outline-none"
+              >
+                <div className="w-6 h-6 rounded-md bg-emerald-500 text-white flex items-center justify-center shadow-xs">
+                  <ShoppingBag className="w-3 h-3" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-bold text-xs text-white leading-none">
+                      {activeList?.title || 'Compras'}
+                    </span>
+                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/80 border border-emerald-800/60 px-1 py-0.2 rounded">
+                      {progressPercent}%
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 leading-none">
+                    {completed}/{total} itens concluídos
+                  </span>
+                </div>
+              </button>
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* Right side controls */}
+            <div className="relative flex items-center space-x-1.5">
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                className="p-1 text-slate-400 hover:text-white transition-colors"
+                title="Tema"
+              >
+                {isDark ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-all active:scale-95"
+                title="Central de Controle"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
+          </div>
+
+          {/* Spotify-style Live Progress Line on bottom border */}
+          <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-slate-800 overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
         </header>
       )}

@@ -112,6 +112,8 @@ const AppContent: React.FC = () => {
         onSelectList={setActiveListId}
         onCreateList={createList}
         isOnline={isOnline}
+        itemsCount={items.length}
+        completedCount={items.filter((i) => i.isChecked).length}
       />
 
       {/* Main Content Area */}
