@@ -1205,34 +1205,34 @@ export const Header: React.FC<HeaderProps> = ({
       )}
 
       {/* ========================================================
-          MODELO 12: Ultra-Curta (M11 sem subtítulo da lista)
+          MODELO 12: Ultra-Compacta Confortável (M11 sem subtítulo)
           - Remove o "› Compras da Semana" da barra: o nome da lista ativa
             só aparece ao tocar em "OrganoCasa" (no topo do dropdown).
-          - Padding superior reduzido (header-safe-ultra) e vertical mínimo,
-            encostando a barra logo abaixo da Dynamic Island.
-          - Mantém o verde do M5 e o Auto-Hide do M6.
+          - Padding seguro com +6px (header-safe) e altura confortável (pt-1.5 pb-2),
+            ficando 100% abaixo do blur nativo da barra de status do iOS.
+          - Mantém o degradê esmeralda do M5 e o Auto-Hide suave do M6.
           ======================================================== */}
       {headerModel === 12 && (
-        <header className={`relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3 pb-0.5 header-safe-ultra shadow-xs transition-all duration-300 ease-out ${
+        <header className={`relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3.5 pt-1.5 pb-2 header-safe shadow-xs transition-all duration-300 ease-out ${
           isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none overflow-hidden' : 'mt-0 opacity-100'
         }`}>
-          <div className="max-w-2xl mx-auto h-7 flex items-center justify-between">
+          <div className="max-w-2xl mx-auto flex items-center justify-between">
             {/* Apenas a marca — lista ativa fica dentro do dropdown */}
             <div className="relative">
               <button
                 data-list-menu-trigger="true"
                 onClick={() => setShowListMenu(!showListMenu)}
-                className="flex items-center space-x-1.5 text-left focus:outline-none"
+                className="flex items-center space-x-2 text-left focus:outline-none py-0.5"
                 title={`Lista ativa: ${activeList?.title || 'Compras'}`}
                 aria-label={`OrganoCasa — lista ativa: ${activeList?.title || 'Compras'}. Toque para trocar.`}
               >
-                <div className="w-5 h-5 rounded-md bg-white/20 text-white border border-white/25 flex items-center justify-center">
-                  <ShoppingBag className="w-3 h-3" />
+                <div className="w-6 h-6 rounded-md bg-white/20 text-white border border-white/25 flex items-center justify-center shadow-2xs">
+                  <ShoppingBag className="w-3.5 h-3.5" />
                 </div>
-                <span className="font-bold text-xs text-white leading-none tracking-tight">
+                <span className="font-bold text-sm text-white leading-none tracking-tight">
                   OrganoCasa
                 </span>
-                <ChevronDown className={`w-3 h-3 text-emerald-200 transition-transform ${showListMenu ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-3.5 h-3.5 text-emerald-200 transition-transform ${showListMenu ? 'rotate-180' : ''}`} />
               </button>
 
               {renderListSelectorDropdown()}
@@ -1253,7 +1253,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={handleToggleTheme}
-                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                className="p-1.5 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
                 title="Tema"
               >
                 {isDark ? <Sun className="w-3.5 h-3.5 text-amber-300" /> : <Moon className="w-3.5 h-3.5" />}
@@ -1263,7 +1263,7 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={handleManualSync}
                 disabled={syncStatus.isSyncing}
-                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                className="p-1.5 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
                 title="Sincronizar"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-white' : ''}`} />
@@ -1272,7 +1272,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={() => setIsHouseholdOpen(true)}
-                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
+                className="p-1.5 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
                 title="Família"
               >
                 <Users className="w-3.5 h-3.5" />
@@ -1282,7 +1282,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={() => setIsNotificationOpen(true)}
-                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
+                className="p-1.5 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
                 title="Notificações"
               >
                 <Bell className="w-3.5 h-3.5" />
@@ -1297,7 +1297,7 @@ export const Header: React.FC<HeaderProps> = ({
                     type="button"
                     data-quick-control-trigger="true"
                     onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
-                    className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
+                    className="p-1.5 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
                     title="Alternar Modelo (Simulador/Dev)"
                   >
                     <SlidersHorizontal className="w-3.5 h-3.5" />

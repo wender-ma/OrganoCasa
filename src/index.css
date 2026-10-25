@@ -20,12 +20,11 @@
     padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
   }
   .header-safe {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: max(calc(env(safe-area-inset-top, 0px) + 6px), 0.75rem);
   }
-  /* M12 Ultra-Compact Header: encosta o conteúdo logo abaixo da Dynamic Island
-     (sem invadir a linha do relógio/bateria, que ocupa as laterais da barra de status) */
+  /* M12 Header: com espaçamento seguro para ficar 100% abaixo do blur nativo do iOS */
   .header-safe-ultra {
-    padding-top: max(calc(env(safe-area-inset-top, 0px) - 10px), 0.25rem);
+    padding-top: max(calc(env(safe-area-inset-top, 0px) + 6px), 0.75rem);
   }
   /* Barra inferior enxuta (v1.4.11): usa só parte da área do indicador Home do iPhone */
   .nav-safe-bottom {

@@ -179,7 +179,7 @@
   <div class="top-controls">
     <div style="display: flex; align-items: center; gap: 8px;">
       <span style="font-weight: 700; font-size: 13px;">📱 OrganoCasa Simulator</span>
-      <span class="badge-version">v1.4.19</span>
+      <span class="badge-version">v1.4.20</span>
     </div>
 
     <!-- Seletor de Modelo de Topo (1 a 11) -->
@@ -311,8 +311,8 @@
           doc.head.appendChild(styleTag);
         }
         styleTag.textContent = `
-          .header-safe { padding-top: ${currentTopInset}px !important; }
-          .header-safe-ultra { padding-top: ${Math.max(currentTopInset - 10, 4)}px !important; }
+          .header-safe { padding-top: ${currentTopInset + 6}px !important; }
+          .header-safe-ultra { padding-top: ${currentTopInset + 6}px !important; }
           .nav-safe-bottom { padding-bottom: ${currentBottomInset}px !important; }
           .fab-above-nav { bottom: calc(3.5rem + ${currentBottomInset}px + 0.75rem) !important; }
         `;
