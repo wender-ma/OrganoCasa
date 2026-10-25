@@ -22,6 +22,11 @@
   .header-safe {
     padding-top: env(safe-area-inset-top, 0px);
   }
+  /* M12 Ultra-Compact Header: encosta o conteúdo logo abaixo da Dynamic Island
+     (sem invadir a linha do relógio/bateria, que ocupa as laterais da barra de status) */
+  .header-safe-ultra {
+    padding-top: max(calc(env(safe-area-inset-top, 0px) - 10px), 0.25rem);
+  }
   /* Barra inferior enxuta (v1.4.11): usa só parte da área do indicador Home do iPhone */
   .nav-safe-bottom {
     padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) * 0.55), 0.25rem);

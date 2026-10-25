@@ -38,10 +38,10 @@ function resolveInitialDarkMode(): boolean {
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-const VALID_MODELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
+const VALID_MODELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
 
 function resolveInitialHeaderModel(): number {
-  if (typeof window === 'undefined') return 11;
+  if (typeof window === 'undefined') return 12;
   const urlParam = new URLSearchParams(window.location.search).get('header_model');
   if (urlParam && VALID_MODELS.includes(urlParam)) {
     return Number(urlParam);
@@ -50,7 +50,7 @@ function resolveInitialHeaderModel(): number {
   if (saved && VALID_MODELS.includes(saved)) {
     return Number(saved);
   }
-  return 11; // Padrão: Modelo 11 (Fusão M5 Verde + M6 Auto-Hide)
+  return 12; // Padrão: Modelo 12 (Ultra-Compacta sem subtítulo + Centro Livre sob Dynamic Island)
 }
 
 interface HeaderProps {
@@ -149,9 +149,9 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('popstate', checkModel);
   }, []);
 
-  // Modelos 6 e 11: Auto-Hide estilo Instagram (Colapso real de layout, zero barra branca)
+  // Modelos 6, 11 e 12: Auto-Hide estilo Instagram (Colapso real de layout, zero barra branca)
   useEffect(() => {
-    if (headerModel !== 6 && headerModel !== 11) {
+    if (headerModel !== 6 && headerModel !== 11 && headerModel !== 12) {
       setIsHeaderHidden(false);
       return;
     }
@@ -205,8 +205,8 @@ export const Header: React.FC<HeaderProps> = ({
       document.documentElement.classList.toggle('dark', isDark);
       const themeColorMeta = document.querySelector('meta[name="theme-color"]');
       if (themeColorMeta) {
-        // Nos Modelos 2, 5 e 11, o tema da barra de status é verde esmeralda para fusão perfeita
-        if (headerModel === 2 || headerModel === 5 || headerModel === 11) {
+        // Nos Modelos 2, 5, 11 e 12, o tema da barra de status é verde esmeralda para fusão perfeita
+        if (headerModel === 2 || headerModel === 5 || headerModel === 11 || headerModel === 12) {
           themeColorMeta.setAttribute('content', isDark ? '#064e3b' : '#059669');
         } else {
           themeColorMeta.setAttribute('content', isDark ? '#0f172a' : '#ffffff');
@@ -354,7 +354,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Seletor Rápido de Modelos de Topo */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="px-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center justify-between">
-              <span>Modelo do Topo (11 Opções)</span>
+              <span>Modelo do Topo (12 Opções)</span>
               <span className="text-[10px] text-emerald-500 font-bold">M{headerModel} ativo</span>
             </div>
             <div className="grid grid-cols-6 gap-1 mb-1.5">
@@ -374,8 +374,8 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-5 gap-1">
-              {[7, 8, 9, 10, 11].map((m) => (
+            <div className="grid grid-cols-6 gap-1">
+              {[7, 8, 9, 10, 11, 12].map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -383,13 +383,13 @@ export const Header: React.FC<HeaderProps> = ({
                   className={`py-1 text-xs font-bold rounded-lg transition-all ${
                     headerModel === m
                       ? 'bg-emerald-600 text-white shadow-xs ring-1 ring-emerald-400'
-                      : m === 11
+                      : m === 12
                         ? 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 font-black'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
-                  title={m === 11 ? 'Modelo 11: Fusão M5 Verde + M6 Auto-Hide' : `Modelo ${m}`}
+                  title={m === 12 ? 'Modelo 12: Ultra-Curta sem subtítulo + Auto-Hide' : `Modelo ${m}`}
                 >
-                  {m === 11 ? '★ M11' : `M${m}`}
+                  {m === 12 ? '★M12' : `M${m}`}
                 </button>
               ))}
             </div>
@@ -414,9 +414,14 @@ export const Header: React.FC<HeaderProps> = ({
           ref={listMenuRef}
           className="absolute top-full mt-2 left-0 w-64 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-150"
         >
-          <div className="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Suas Listas</span>
-            <span className="text-[10px] text-slate-400 lowercase font-normal">{APP_VERSION}</span>
+          <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-700/70 mb-1">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Lista Ativa</span>
+              <span className="text-[10px] text-emerald-500 font-bold">{APP_VERSION}</span>
+            </div>
+            <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 truncate mt-0.5 flex items-center space-x-1">
+              <span>› {activeList?.title || 'Compras da Semana'}</span>
+            </div>
           </div>
           <div className="max-h-48 overflow-y-auto">
             {lists.map((list) => (
@@ -800,8 +805,8 @@ export const Header: React.FC<HeaderProps> = ({
           Ao rolar levemente para cima ou chegar ao topo, ela reaparece suavemente.
           ======================================================== */}
       {headerModel === 6 && (
-        <header className={`relative z-40 flex-none bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md text-white border-b border-slate-800 px-3 py-1 header-safe shadow-md transition-all duration-300 ease-out overflow-hidden ${
-          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none' : 'mt-0 opacity-100'
+        <header className={`relative z-40 flex-none bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur-md text-white border-b border-slate-800 px-3 py-1 header-safe shadow-md transition-all duration-300 ease-out ${
+          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none overflow-hidden' : 'mt-0 opacity-100'
         }`}>
           <div className="max-w-2xl mx-auto flex items-center justify-between">
             {/* Brand compact */}
@@ -1104,8 +1109,8 @@ export const Header: React.FC<HeaderProps> = ({
           sem barra branca e com 100% de tela útil ao rolar para baixo!
           ======================================================== */}
       {headerModel === 11 && (
-        <header className={`relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3 py-1 header-safe shadow-xs transition-all duration-300 ease-out overflow-hidden ${
-          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none' : 'mt-0 opacity-100'
+        <header className={`relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3 py-1 header-safe shadow-xs transition-all duration-300 ease-out ${
+          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none overflow-hidden' : 'mt-0 opacity-100'
         }`}>
           <div className="max-w-2xl mx-auto flex items-center justify-between">
             {/* Brand compact em verde */}
@@ -1176,6 +1181,186 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
                 className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
                 title="Alternar Modelo"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 12: Ultra-Curta (M11 sem subtítulo da lista)
+          - Remove o "› Compras da Semana" da barra: o nome da lista ativa
+            só aparece ao tocar em "OrganoCasa" (no topo do dropdown).
+          - Padding superior reduzido (header-safe-ultra) e vertical mínimo,
+            encostando a barra logo abaixo da Dynamic Island.
+          - Mantém o verde do M5 e o Auto-Hide do M6.
+          ======================================================== */}
+      {headerModel === 12 && (
+        <header className={`relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3 pb-0.5 header-safe-ultra shadow-xs transition-all duration-300 ease-out ${
+          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none overflow-hidden' : 'mt-0 opacity-100'
+        }`}>
+          <div className="max-w-2xl mx-auto h-7 flex items-center justify-between">
+            {/* Apenas a marca — lista ativa fica dentro do dropdown */}
+            <div className="relative">
+              <button
+                data-list-menu-trigger="true"
+                onClick={() => setShowListMenu(!showListMenu)}
+                className="flex items-center space-x-1.5 text-left focus:outline-none"
+                title={`Lista ativa: ${activeList?.title || 'Compras'}`}
+                aria-label={`OrganoCasa — lista ativa: ${activeList?.title || 'Compras'}. Toque para trocar.`}
+              >
+                <div className="w-5 h-5 rounded-md bg-white/20 text-white border border-white/25 flex items-center justify-center">
+                  <ShoppingBag className="w-3 h-3" />
+                </div>
+                <span className="font-bold text-xs text-white leading-none tracking-tight">
+                  OrganoCasa
+                </span>
+                <ChevronDown className={`w-3 h-3 text-emerald-200 transition-transform ${showListMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* Micro-ícones */}
+            <div className="relative flex items-center space-x-0.5">
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Tema"
+              >
+                {isDark ? <Sun className="w-3.5 h-3.5 text-amber-300" /> : <Moon className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleManualSync}
+                disabled={syncStatus.isSyncing}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Sincronizar"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-white' : ''}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsHouseholdOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
+                title="Família"
+              >
+                <Users className="w-3.5 h-3.5" />
+                {session && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-300" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsNotificationOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Notificações"
+              >
+                <Bell className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
+                title="Central de Controle"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 12: Ultra-Curta (M11 sem subtítulo da lista)
+          - Remove o "› Compras da Semana" da barra: o nome da lista ativa
+            só aparece ao tocar em "OrganoCasa" (no topo do dropdown).
+          - Padding superior reduzido (header-safe-ultra) e vertical mínimo,
+            encostando a barra logo abaixo da Dynamic Island.
+          - Mantém o verde do M5 e o Auto-Hide do M6.
+          ======================================================== */}
+      {headerModel === 12 && (
+        <header className={`relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3 pb-0.5 header-safe-ultra shadow-xs transition-all duration-300 ease-out ${
+          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none overflow-hidden' : 'mt-0 opacity-100'
+        }`}>
+          <div className="max-w-2xl mx-auto h-7 flex items-center justify-between">
+            {/* Apenas a marca — lista ativa fica dentro do dropdown */}
+            <div className="relative">
+              <button
+                data-list-menu-trigger="true"
+                onClick={() => setShowListMenu(!showListMenu)}
+                className="flex items-center space-x-1.5 text-left focus:outline-none"
+                title={`Lista ativa: ${activeList?.title || 'Compras'}`}
+                aria-label={`OrganoCasa — lista ativa: ${activeList?.title || 'Compras'}. Toque para trocar.`}
+              >
+                <div className="w-5 h-5 rounded-md bg-white/20 text-white border border-white/25 flex items-center justify-center">
+                  <ShoppingBag className="w-3 h-3" />
+                </div>
+                <span className="font-bold text-xs text-white leading-none tracking-tight">
+                  OrganoCasa
+                </span>
+                <ChevronDown className={`w-3 h-3 text-emerald-200 transition-transform ${showListMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* Micro-ícones */}
+            <div className="relative flex items-center space-x-0.5">
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Tema"
+              >
+                {isDark ? <Sun className="w-3.5 h-3.5 text-amber-300" /> : <Moon className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleManualSync}
+                disabled={syncStatus.isSyncing}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Sincronizar"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-white' : ''}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsHouseholdOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
+                title="Família"
+              >
+                <Users className="w-3.5 h-3.5" />
+                {session && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-300" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsNotificationOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Notificações"
+              >
+                <Bell className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
+                title="Central de Controle"
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>

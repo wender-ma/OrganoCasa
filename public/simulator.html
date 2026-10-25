@@ -179,7 +179,7 @@
   <div class="top-controls">
     <div style="display: flex; align-items: center; gap: 8px;">
       <span style="font-weight: 700; font-size: 13px;">📱 OrganoCasa Simulator</span>
-      <span class="badge-version">v1.4.16</span>
+      <span class="badge-version">v1.4.17</span>
     </div>
 
     <!-- Seletor de Modelo de Topo (1 a 11) -->
@@ -196,7 +196,8 @@
         <option value="8">M8: WhatsApp Compact (Chat Header Style)</option>
         <option value="9">M9: Airbnb Floating Pill (Widget Flutuante)</option>
         <option value="10">M10: Spotify Timeline Glass (Progresso na Borda)</option>
-        <option value="11" selected>★ M11: Fusão Perfeita (M5 Verde + M6 Auto-Hide)</option>
+        <option value="11">M11: Fusão Perfeita (M5 Verde + M6 Auto-Hide)</option>
+        <option value="12" selected>★ M12: Ultra-Curta sem subtítulo (M11 enxuto)</option>
       </select>
     </label>
 
@@ -262,7 +263,8 @@
       <button type="button" onclick="quickSelectModel(8)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M8: WhatsApp</button>
       <button type="button" onclick="quickSelectModel(9)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M9: Airbnb Pill</button>
       <button type="button" onclick="quickSelectModel(10)" style="padding: 3px 8px; font-size: 11px; border-radius: 6px;">M10: Spotify Glass</button>
-      <button type="button" onclick="quickSelectModel(11)" style="padding: 3px 10px; font-size: 11px; border-radius: 6px; background: #059669; color: white; border-color: #34d399; font-weight: 800;">★ M11: Fusão M5+M6</button>
+      <button type="button" onclick="quickSelectModel(11)" style="padding: 3px 10px; font-size: 11px; border-radius: 6px; background: #059669; color: white; border-color: #34d399; font-weight: 800;">M11: Fusão M5+M6</button>
+      <button type="button" onclick="quickSelectModel(12)" style="padding: 3px 10px; font-size: 11px; border-radius: 6px; background: #047857; color: white; border-color: #6ee7b7; font-weight: 800;">★ M12: Ultra-Curta</button>
     </div>
   </div>
 
@@ -310,6 +312,7 @@
         }
         styleTag.textContent = `
           .header-safe { padding-top: ${currentTopInset}px !important; }
+          .header-safe-ultra { padding-top: ${Math.max(currentTopInset - 10, 4)}px !important; }
           .nav-safe-bottom { padding-bottom: ${currentBottomInset}px !important; }
           .fab-above-nav { bottom: calc(3.5rem + ${currentBottomInset}px + 0.75rem) !important; }
         `;
@@ -451,6 +454,12 @@
         title: 'Micro-Barra 34px Esmeralda com Auto-Hide 100% Real',
         ref: 'Fusão Solicitada: Visual do M5 + Comportamento do M6',
         desc: '<b>O melhor dos dois mundos</b>: a elegância da Micro-Barra 34px em degradê Verde Esmeralda OrganoCasa (M5), combinada com o Auto-Hide fluído estilo Instagram (M6) que recolhe completamente no scroll down (altura 0 sem barra branca) e reaparece ao subir a tela!'
+      },
+      12: {
+        badge: '★ MODELO 12 (M11 ENXUTO)',
+        title: 'Ultra-Curta sem Subtítulo da Lista',
+        ref: 'Evolução do M11 sugerida pelo usuário',
+        desc: 'Remove o <b>“› Compras da Semana”</b> da barra — a lista ativa aparece só ao tocar em <b>OrganoCasa</b> (no topo do menu). Linha de 28px, padding superior reduzido para encostar logo abaixo da Dynamic Island, mantendo o verde do M5 e o Auto-Hide do M6.'
       }
     };
 
@@ -506,7 +515,7 @@
 
     // Initial scale and model adjustment based on screen height
     window.addEventListener('DOMContentLoaded', () => {
-      const savedModel = localStorage.getItem('organocasa_header_model') || '11';
+      const savedModel = localStorage.getItem('organocasa_header_model') || '12';
       document.getElementById('modelSelect').value = savedModel;
       updateModelInfo(savedModel);
       const initialUrl = new URL(frame.src, window.location.href);
