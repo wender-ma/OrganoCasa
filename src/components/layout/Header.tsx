@@ -46,11 +46,8 @@ function resolveInitialHeaderModel(): number {
   if (urlParam && VALID_MODELS.includes(urlParam)) {
     return Number(urlParam);
   }
-  const saved = localStorage.getItem(HEADER_MODEL_STORAGE_KEY);
-  if (saved && VALID_MODELS.includes(saved)) {
-    return Number(saved);
-  }
-  return 12; // Padrão: Modelo 12 (Ultra-Compacta sem subtítulo + Centro Livre sob Dynamic Island)
+  // No app de produção real (sem query header_model de teste), o modelo oficial e definitivo é o M12
+  return 12;
 }
 
 interface HeaderProps {
@@ -91,6 +88,12 @@ export const Header: React.FC<HeaderProps> = ({
   const total = itemsCount;
   const completed = completedCount;
   const progressPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  const isDevOrSimulator = typeof window !== 'undefined' && (
+    new URLSearchParams(window.location.search).has('header_model') ||
+    new URLSearchParams(window.location.search).has('dev_models') ||
+    window.location.pathname.includes('simulator')
+  );
 
   const quickControlRef = useRef<HTMLDivElement>(null);
   const listMenuRef = useRef<HTMLDivElement>(null);
@@ -160,6 +163,10 @@ export const Header: React.FC<HeaderProps> = ({
 
     let lastScrollTop = mainEl.scrollTop;
     const handleScroll = () => {
+      if (showListMenu) {
+        setIsHeaderHidden(false);
+        return;
+      }
       const currentScrollTop = mainEl.scrollTop;
       const diff = currentScrollTop - lastScrollTop;
       if (currentScrollTop <= 25) {
@@ -174,7 +181,13 @@ export const Header: React.FC<HeaderProps> = ({
 
     mainEl.addEventListener('scroll', handleScroll, { passive: true });
     return () => mainEl.removeEventListener('scroll', handleScroll);
-  }, [headerModel]);
+  }, [headerModel, showListMenu]);
+
+  useEffect(() => {
+    if (showListMenu) {
+      setIsHeaderHidden(false);
+    }
+  }, [showListMenu]);
 
   // Modelo 7: Efeito Large Title iOS (Apple Music / Podcasts)
   useEffect(() => {
@@ -1226,7 +1239,17 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Micro-ícones */}
-            <div className="relative flex items-center space-x-0.5">
+            <div className="relative flex items-center space-x-1">
+              {!isOnline && (
+                <div
+                  className="flex items-center space-x-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-500/25 text-amber-200 border border-amber-400/40"
+                  title="Modo Offline"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span>Offline</span>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleToggleTheme}
@@ -1259,23 +1282,30 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={() => setIsNotificationOpen(true)}
-                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
                 title="Notificações"
               >
                 <Bell className="w-3.5 h-3.5" />
+                {notificationPermission === 'default' && (
+                  <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
+                )}
               </button>
 
-              <button
-                type="button"
-                data-quick-control-trigger="true"
-                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
-                className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
-                title="Central de Controle"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
+              {isDevOrSimulator && (
+                <>
+                  <button
+                    type="button"
+                    data-quick-control-trigger="true"
+                    onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                    className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
+                    title="Alternar Modelo (Simulador/Dev)"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                  </button>
 
-              {renderQuickControlMenu()}
+                  {renderQuickControlMenu()}
+                </>
+              )}
             </div>
           </div>
         </header>
