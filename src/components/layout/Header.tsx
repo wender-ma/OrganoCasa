@@ -38,10 +38,10 @@ function resolveInitialDarkMode(): boolean {
   return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
-const VALID_MODELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+const VALID_MODELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'];
 
 function resolveInitialHeaderModel(): number {
-  if (typeof window === 'undefined') return 4;
+  if (typeof window === 'undefined') return 11;
   const urlParam = new URLSearchParams(window.location.search).get('header_model');
   if (urlParam && VALID_MODELS.includes(urlParam)) {
     return Number(urlParam);
@@ -50,7 +50,7 @@ function resolveInitialHeaderModel(): number {
   if (saved && VALID_MODELS.includes(saved)) {
     return Number(saved);
   }
-  return 4; // Padrão: Modelo 4 (Favorito do Usuário)
+  return 11; // Padrão: Modelo 11 (Fusão M5 Verde + M6 Auto-Hide)
 }
 
 interface HeaderProps {
@@ -149,9 +149,9 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('popstate', checkModel);
   }, []);
 
-  // Modelo 6: Auto-Hide estilo Instagram (Colapso real de layout, zero barra branca)
+  // Modelos 6 e 11: Auto-Hide estilo Instagram (Colapso real de layout, zero barra branca)
   useEffect(() => {
-    if (headerModel !== 6) {
+    if (headerModel !== 6 && headerModel !== 11) {
       setIsHeaderHidden(false);
       return;
     }
@@ -205,8 +205,8 @@ export const Header: React.FC<HeaderProps> = ({
       document.documentElement.classList.toggle('dark', isDark);
       const themeColorMeta = document.querySelector('meta[name="theme-color"]');
       if (themeColorMeta) {
-        // No Modelo 2, o tema da barra pode ser verde esmeralda para fusão perfeita
-        if (headerModel === 2) {
+        // Nos Modelos 2, 5 e 11, o tema da barra de status é verde esmeralda para fusão perfeita
+        if (headerModel === 2 || headerModel === 5 || headerModel === 11) {
           themeColorMeta.setAttribute('content', isDark ? '#064e3b' : '#059669');
         } else {
           themeColorMeta.setAttribute('content', isDark ? '#0f172a' : '#ffffff');
@@ -354,11 +354,11 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Seletor Rápido de Modelos de Topo */}
           <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="px-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center justify-between">
-              <span>Modelo do Topo (10 Opções)</span>
+              <span>Modelo do Topo (11 Opções)</span>
               <span className="text-[10px] text-emerald-500 font-bold">M{headerModel} ativo</span>
             </div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((m) => (
+            <div className="grid grid-cols-6 gap-1 mb-1.5">
+              {[1, 2, 3, 4, 5, 6].map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -371,6 +371,25 @@ export const Header: React.FC<HeaderProps> = ({
                   title={`Modelo ${m}`}
                 >
                   M{m}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {[7, 8, 9, 10, 11].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => selectHeaderModel(m)}
+                  className={`py-1 text-xs font-bold rounded-lg transition-all ${
+                    headerModel === m
+                      ? 'bg-emerald-600 text-white shadow-xs ring-1 ring-emerald-400'
+                      : m === 11
+                        ? 'bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 font-black'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                  title={m === 11 ? 'Modelo 11: Fusão M5 Verde + M6 Auto-Hide' : `Modelo ${m}`}
+                >
+                  {m === 11 ? '★ M11' : `M${m}`}
                 </button>
               ))}
             </div>
@@ -1074,6 +1093,95 @@ export const Header: React.FC<HeaderProps> = ({
               className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300"
               style={{ width: `${progressPercent}%` }}
             />
+          </div>
+        </header>
+      )}
+
+      {/* ========================================================
+          MODELO 11: Fusão Perfeita (Visual do M5 + Auto-Hide do M6)
+          O visual verde esmeralda compacto de 34px do M4/M5 combinado
+          com o recolhimento suave do Instagram (colapso real de layout -mt-28),
+          sem barra branca e com 100% de tela útil ao rolar para baixo!
+          ======================================================== */}
+      {headerModel === 11 && (
+        <header className={`relative z-40 flex-none bg-gradient-to-r from-emerald-700 via-emerald-750 to-teal-800 dark:from-emerald-900 dark:via-emerald-950 dark:to-teal-950 text-white border-b border-emerald-600/50 dark:border-emerald-800/80 px-3 py-1 header-safe shadow-xs transition-all duration-300 ease-out overflow-hidden ${
+          isHeaderHidden ? '-mt-28 opacity-0 pointer-events-none' : 'mt-0 opacity-100'
+        }`}>
+          <div className="max-w-2xl mx-auto flex items-center justify-between">
+            {/* Brand compact em verde */}
+            <div className="relative">
+              <button
+                data-list-menu-trigger="true"
+                onClick={() => setShowListMenu(!showListMenu)}
+                className="flex items-center space-x-1.5 text-left focus:outline-none"
+              >
+                <div className="w-6 h-6 rounded-md bg-white/20 backdrop-blur-xs text-white border border-white/25 flex items-center justify-center shadow-2xs">
+                  <ShoppingBag className="w-3 h-3" />
+                </div>
+                <span className="font-bold text-xs text-white leading-none tracking-tight">
+                  OrganoCasa
+                </span>
+                <span className="text-[11px] text-emerald-200 truncate max-w-[130px]">
+                  › {activeList?.title || 'Compras'}
+                </span>
+                <ChevronDown className="w-3 h-3 text-emerald-200" />
+              </button>
+
+              {renderListSelectorDropdown()}
+            </div>
+
+            {/* 4 Micro Icons em branco/verde translúcido */}
+            <div className="relative flex items-center space-x-1">
+              <button
+                type="button"
+                onClick={handleToggleTheme}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Tema"
+              >
+                {isDark ? <Sun className="w-3.5 h-3.5 text-amber-300" /> : <Moon className="w-3.5 h-3.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleManualSync}
+                disabled={syncStatus.isSyncing}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Sincronizar"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.isSyncing ? 'animate-spin text-white' : ''}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsHouseholdOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors relative"
+                title="Família"
+              >
+                <Users className="w-3.5 h-3.5" />
+                {session && <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-300" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsNotificationOpen(true)}
+                className="p-1 text-emerald-100 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+                title="Notificações"
+              >
+                <Bell className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                data-quick-control-trigger="true"
+                onClick={() => setShowQuickControlMenu(!showQuickControlMenu)}
+                className="p-1 text-white bg-white/20 hover:bg-white/30 rounded-md transition-colors"
+                title="Alternar Modelo"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+
+              {renderQuickControlMenu()}
+            </div>
           </div>
         </header>
       )}
