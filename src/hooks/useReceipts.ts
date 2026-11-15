@@ -20,7 +20,8 @@ import {
   pushSinglePriceRecord,
   deleteMultiplePriceRecords,
   triggerFullSync,
-  getCurrentSession
+  getCurrentSession,
+  resolveCurrentItemAuthor
 } from '../services/supabaseSync';
 
 // Fuzzy similarity helper to match names (e.g. "ARROZ TIO JOAO 5KG" matches "Arroz Branco 5kg")
@@ -385,6 +386,7 @@ export function useReceipts() {
           await db.shoppingListItems.put(updatedExtra);
           pushSingleItem(updatedExtra).catch(console.warn);
         } else {
+          const author = await resolveCurrentItemAuthor();
           const extraItem: ShoppingListItem = {
             id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
             listId: targetListId,
@@ -398,6 +400,9 @@ export function useReceipts() {
             averagePrice: item.unitPrice || 0,
             lastPrice: item.unitPrice || 0,
             isChecked: true,
+            addedByUserId: author.addedByUserId,
+            addedByMemberId: author.addedByMemberId,
+            addedByName: author.addedByName,
             createdAt: now,
             updatedAt: now
           };

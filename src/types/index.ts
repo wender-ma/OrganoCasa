@@ -67,6 +67,9 @@ export interface ShoppingListItem {
   lastPrice: number;
   isChecked: boolean;
   notes?: string;
+  addedByUserId?: string;
+  addedByMemberId?: string;
+  addedByName?: string;
   createdAt: string;
   updatedAt?: string;
 }

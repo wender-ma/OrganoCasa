@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import {
   Plus,
   ReceiptText,
@@ -11,7 +12,9 @@ import {
   ChevronUp,
   Calendar
 } from 'lucide-react';
-import { ProductCategory, Product, ShoppingListItem } from '../../types';
+import { ProductCategory, Product, ShoppingListItem, HouseholdMember } from '../../types';
+import { db } from '../../db/dexie';
+import { getCurrentSession, isSeedRecord } from '../../services/supabaseSync';
 import { useShoppingList } from '../../hooks/useShoppingList';
 import { useProducts } from '../../hooks/useProducts';
 import { ShoppingItemCard } from './ShoppingItemCard';
@@ -60,6 +63,12 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
   } = useShoppingList();
 
   const { products } = useProducts();
+  const rawMembers = useLiveQuery<HouseholdMember[]>(() => db.householdMembers.toArray(), []) || [];
+  const members = React.useMemo(
+    () => rawMembers.filter((m) => !isSeedRecord(m.id) && m.id !== 'member-1' && m.id !== 'member-2'),
+    [rawMembers]
+  );
+  const currentSession = getCurrentSession();
 
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -162,6 +171,38 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
 
   const handleSelectBrand = async (itemId: string, brand: string) => {
     await updateItem(itemId, { selectedBrand: brand });
+  };
+
+  const renderItemCard = (item: ShoppingListItem, withCompleting = false) => {
+    const matchedProduct = products.find((p) => p.id === item.productId);
+    const addedByMember = members.find(
+      (m) =>
+        (item.addedByMemberId && m.id === item.addedByMemberId) ||
+        (item.addedByUserId && m.userId === item.addedByUserId) ||
+        (item.addedByName && m.name.trim().toLowerCase() === item.addedByName.trim().toLowerCase())
+    );
+    const isAddedBySelf = Boolean(
+      currentSession &&
+        ((item.addedByUserId && item.addedByUserId === currentSession.id) ||
+          (addedByMember?.userId && addedByMember.userId === currentSession.id))
+    );
+
+    return (
+      <ShoppingItemCard
+        key={item.id}
+        item={item}
+        product={matchedProduct}
+        addedByMember={addedByMember}
+        isAddedBySelf={isAddedBySelf}
+        isCompleting={withCompleting ? completingItemIds.has(item.id) : false}
+        onToggle={handleToggleItem}
+        onUpdateQuantity={updateItemQuantity}
+        onRemove={removeItem}
+        onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
+        onEdit={(it) => setEditingItem(it)}
+        onSelectBrand={handleSelectBrand}
+      />
+    );
   };
 
   return (
@@ -325,23 +366,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
 
                     {/* Items under this category */}
                     <div className="space-y-2">
-                      {categoryItems.map((item) => {
-                        const matchedProduct = products.find((p) => p.id === item.productId);
-                        return (
-                          <ShoppingItemCard
-                            key={item.id}
-                            item={item}
-                            product={matchedProduct}
-                            isCompleting={completingItemIds.has(item.id)}
-                            onToggle={handleToggleItem}
-                            onUpdateQuantity={updateItemQuantity}
-                            onRemove={removeItem}
-                            onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
-                            onEdit={(it) => setEditingItem(it)}
-                            onSelectBrand={handleSelectBrand}
-                          />
-                        );
-                      })}
+                      {categoryItems.map((item) => renderItemCard(item, true))}
                     </div>
                   </div>
                 );
@@ -406,22 +431,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                       <span>Limpar comprados</span>
                     </button>
                   </div>
-                  {currentMonthCompletedItems.map((item) => {
-                    const matchedProduct = products.find((p) => p.id === item.productId);
-                    return (
-                      <ShoppingItemCard
-                        key={item.id}
-                        item={item}
-                        product={matchedProduct}
-                        onToggle={handleToggleItem}
-                        onUpdateQuantity={updateItemQuantity}
-                        onRemove={removeItem}
-                        onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
-                        onEdit={(it) => setEditingItem(it)}
-                        onSelectBrand={handleSelectBrand}
-                      />
-                    );
-                  })}
+                  {currentMonthCompletedItems.map((item) => renderItemCard(item))}
                 </div>
               )}
             </div>
@@ -490,22 +500,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                         </div>
 
                         <div className="space-y-2">
-                          {monthItems.map((item) => {
-                            const matchedProduct = products.find((p) => p.id === item.productId);
-                            return (
-                              <ShoppingItemCard
-                                key={item.id}
-                                item={item}
-                                product={matchedProduct}
-                                onToggle={handleToggleItem}
-                                onUpdateQuantity={updateItemQuantity}
-                                onRemove={removeItem}
-                                onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
-                                onEdit={(it) => setEditingItem(it)}
-                                onSelectBrand={handleSelectBrand}
-                              />
-                            );
-                          })}
+                          {monthItems.map((item) => renderItemCard(item))}
                         </div>
                       </div>
                     );

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { Check, Plus, Minus, Trash2, Tag, Info, Edit2, Award, Sparkles, X, Layers } from 'lucide-react';
-import { ShoppingListItem, Product } from '../../types';
+import { ShoppingListItem, Product, HouseholdMember } from '../../types';
 import { CATEGORY_ICONS } from '../../db/seed';
 
 interface ShoppingItemCardProps {
   item: ShoppingListItem;
   product?: Product;
+  addedByMember?: HouseholdMember;
+  isAddedBySelf?: boolean;
   isCompleting?: boolean;
   onToggle: (id: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
@@ -18,6 +20,8 @@ interface ShoppingItemCardProps {
 export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   item,
   product,
+  addedByMember,
+  isAddedBySelf = false,
   isCompleting = false,
   onToggle,
   onUpdateQuantity,
@@ -59,6 +63,9 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   const primaryBrand = item.brand || product?.brand;
   const alternativeBrands = item.alternativeBrands || product?.alternativeBrands || [];
   const activeSelectedBrand = item.selectedBrand || primaryBrand;
+  const authorName = addedByMember?.name || item.addedByName;
+  const authorEmoji = addedByMember?.avatarEmoji;
+  const authorColor = addedByMember?.color || '#10b981';
 
   return (
     <>
@@ -156,6 +163,25 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
                 {item.notes && (
                   <span className="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded truncate max-w-[140px]">
                     {item.notes}
+                  </span>
+                )}
+
+                {authorName && (
+                  <span
+                    className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-lg text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700/80 max-w-[155px]"
+                    title={`Adicionado por ${authorName}${isAddedBySelf ? ' (você)' : ''}`}
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] text-white shrink-0 font-bold leading-none"
+                      style={{ backgroundColor: authorColor }}
+                    >
+                      {authorEmoji && authorEmoji !== '👤'
+                        ? authorEmoji
+                        : authorName.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="truncate">
+                      {isAddedBySelf ? `Por ${authorName} (você)` : `Por ${authorName}`}
+                    </span>
                   </span>
                 )}
               </div>
@@ -283,6 +309,7 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
                 </h3>
                 <p className="text-xs text-slate-400">
                   {item.category} • {item.quantity} {item.unit}
+                  {authorName ? ` • Adicionado por ${authorName}` : ''}
                 </p>
               </div>
               <button

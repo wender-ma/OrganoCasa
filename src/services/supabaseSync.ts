@@ -219,6 +219,147 @@ export function saveCurrentSession(session: UserSession | null) {
   }
 }
 
+export interface ItemAuthorInfo {
+  addedByUserId?: string;
+  addedByMemberId?: string;
+  addedByName?: string;
+}
+
+/**
+ * Resolves the author metadata for newly created shopping list items
+ * from the active session and synced household members.
+ */
+export async function resolveCurrentItemAuthor(): Promise<ItemAuthorInfo> {
+  const session = getCurrentSession();
+  const allMembers = await db.householdMembers.toArray();
+  const realMembers = allMembers.filter(
+    (m) => !isSeedRecord(m.id) && m.id !== 'member-1' && m.id !== 'member-2'
+  );
+
+  if (session) {
+    const emailPrefix = session.email.split('@')[0]?.trim().toLowerCase() || '';
+    const matchedMember = realMembers.find(
+      (m) =>
+        (m.userId && m.userId === session.id) ||
+        (emailPrefix && m.name.trim().toLowerCase() === emailPrefix)
+    );
+    return {
+      addedByUserId: session.id,
+      addedByMemberId: matchedMember?.id,
+      addedByName: matchedMember?.name || session.email.split('@')[0] || undefined
+    };
+  }
+
+  const fallbackMember =
+    realMembers.find((m) => m.isDefault) || (realMembers.length === 1 ? realMembers[0] : undefined);
+
+  if (fallbackMember) {
+    return {
+      addedByMemberId: fallbackMember.id,
+      addedByName: fallbackMember.name
+    };
+  }
+
+  return {};
+}
+
+let shoppingItemAuthorColumnsSupported: boolean | null = null;
+
+function isMissingAuthorColumnError(error: any): boolean {
+  if (!error) return false;
+  const code = String(error.code || '');
+  const msg = String(error.message || '').toLowerCase();
+  const details = String(error.details || '').toLowerCase();
+  return (
+    code === '42703' ||
+    code === 'PGRST204' ||
+    msg.includes('added_by_') ||
+    details.includes('added_by_')
+  );
+}
+
+function mapRemoteShoppingListItem(remoteItem: any, existingLocal?: ShoppingListItem): ShoppingListItem {
+  return {
+    id: remoteItem.id,
+    listId: remoteItem.list_id,
+    productId: remoteItem.product_id || undefined,
+    name: remoteItem.name,
+    category: remoteItem.category,
+    brand: remoteItem.brand || undefined,
+    alternativeBrands: remoteItem.alternative_brands || undefined,
+    selectedBrand: remoteItem.selected_brand || undefined,
+    imageUrl: remoteItem.image_url || undefined,
+    quantity: Number(remoteItem.quantity || 1),
+    unit: remoteItem.unit,
+    averagePrice: Number(remoteItem.average_price || 0),
+    lastPrice: Number(remoteItem.last_price || 0),
+    isChecked: Boolean(remoteItem.is_checked),
+    notes: remoteItem.notes || undefined,
+    addedByUserId: remoteItem.added_by_user_id || existingLocal?.addedByUserId || undefined,
+    addedByMemberId: remoteItem.added_by_member_id || existingLocal?.addedByMemberId || undefined,
+    addedByName: remoteItem.added_by_name || existingLocal?.addedByName || undefined,
+    createdAt: remoteItem.created_at,
+    updatedAt: remoteItem.updated_at || remoteItem.created_at
+  };
+}
+
+function buildShoppingListItemPayload(
+  item: ShoppingListItem,
+  householdId: string,
+  includeAuthorColumns: boolean
+): Record<string, any> {
+  const payload: Record<string, any> = {
+    id: item.id,
+    household_id: householdId,
+    list_id: item.listId,
+    product_id: item.productId || null,
+    name: item.name,
+    category: item.category,
+    brand: item.brand || null,
+    alternative_brands: item.alternativeBrands || [],
+    selected_brand: item.selectedBrand || null,
+    image_url: item.imageUrl || null,
+    quantity: item.quantity,
+    unit: item.unit,
+    average_price: item.averagePrice || 0,
+    last_price: item.lastPrice || 0,
+    is_checked: item.isChecked,
+    notes: item.notes || null,
+    created_at: item.createdAt,
+    updated_at: item.updatedAt || new Date().toISOString()
+  };
+
+  if (includeAuthorColumns) {
+    payload.added_by_user_id = item.addedByUserId || null;
+    payload.added_by_member_id = item.addedByMemberId || null;
+    payload.added_by_name = item.addedByName || null;
+  }
+
+  return payload;
+}
+
+async function upsertShoppingListItemsWithFallback(
+  client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  householdId: string,
+  items: ShoppingListItem[]
+) {
+  const tryWithAuthor = shoppingItemAuthorColumnsSupported !== false;
+  const payload = items.map((item) => buildShoppingListItemPayload(item, householdId, tryWithAuthor));
+  const result = await client.from('shopping_list_items').upsert(payload, { onConflict: 'id' });
+
+  if (result.error && tryWithAuthor && isMissingAuthorColumnError(result.error)) {
+    shoppingItemAuthorColumnsSupported = false;
+    const fallbackPayload = items.map((item) => buildShoppingListItemPayload(item, householdId, false));
+    return client.from('shopping_list_items').upsert(fallbackPayload, { onConflict: 'id' });
+  }
+
+  if (!result.error && tryWithAuthor) {
+    shoppingItemAuthorColumnsSupported = true;
+  }
+
+  return result;
+}
+
 function generateInviteCode(): string {
   return `CASA-${Math.floor(100000 + Math.random() * 900000)}`;
 }
@@ -932,25 +1073,7 @@ export async function pullFreshHouseholdData(householdId: string): Promise<void>
         if (remoteItems?.length) {
           const items: ShoppingListItem[] = remoteItems.map((i: any) => {
             freshSyncedIds.add(i.id);
-            return {
-              id: i.id,
-              listId: i.list_id,
-              productId: i.product_id || undefined,
-              name: i.name,
-              category: i.category,
-              brand: i.brand || undefined,
-              alternativeBrands: i.alternative_brands || undefined,
-              selectedBrand: i.selected_brand || undefined,
-              imageUrl: i.image_url || undefined,
-              quantity: Number(i.quantity || 1),
-              unit: i.unit,
-              averagePrice: Number(i.average_price || 0),
-              lastPrice: Number(i.last_price || 0),
-              isChecked: Boolean(i.is_checked),
-              notes: i.notes || undefined,
-              createdAt: i.created_at,
-              updatedAt: i.updated_at || i.created_at
-            };
+            return mapRemoteShoppingListItem(i);
           });
           await db.shoppingListItems.bulkPut(items);
         }
@@ -1197,25 +1320,7 @@ export async function triggerFullSync(): Promise<boolean> {
       const localUpdatedAt = local ? new Date(local.updatedAt || local.createdAt).getTime() : 0;
 
       if (!local || remoteUpdatedAt >= localUpdatedAt) {
-        await db.shoppingListItems.put({
-          id: remoteItem.id,
-          listId: remoteItem.list_id,
-          productId: remoteItem.product_id || undefined,
-          name: remoteItem.name,
-          category: remoteItem.category,
-          brand: remoteItem.brand || undefined,
-          alternativeBrands: remoteItem.alternative_brands || undefined,
-          selectedBrand: remoteItem.selected_brand || undefined,
-          imageUrl: remoteItem.image_url || undefined,
-          quantity: Number(remoteItem.quantity || 1),
-          unit: remoteItem.unit,
-          averagePrice: Number(remoteItem.average_price || 0),
-          lastPrice: Number(remoteItem.last_price || 0),
-          isChecked: Boolean(remoteItem.is_checked),
-          notes: remoteItem.notes || undefined,
-          createdAt: remoteItem.created_at,
-          updatedAt: remoteItem.updated_at || remoteItem.created_at
-        });
+        await db.shoppingListItems.put(mapRemoteShoppingListItem(remoteItem, local));
       }
     }
 
@@ -1486,27 +1591,7 @@ export async function triggerFullSync(): Promise<boolean> {
     // 3.3 Push Shopping List Items THIRD
     if (itemsToPush.length > 0) {
       itemsToPush.forEach((i) => markRecentLocalAction(i.id));
-      const itemPayload = itemsToPush.map((i) => ({
-        id: i.id,
-        household_id: householdId,
-        list_id: i.listId,
-        product_id: i.productId || null,
-        name: i.name,
-        category: i.category,
-        brand: i.brand || null,
-        alternative_brands: i.alternativeBrands || [],
-        selected_brand: i.selectedBrand || null,
-        image_url: i.imageUrl || null,
-        quantity: i.quantity,
-        unit: i.unit,
-        average_price: i.averagePrice || 0,
-        last_price: i.lastPrice || 0,
-        is_checked: i.isChecked,
-        notes: i.notes || null,
-        created_at: i.createdAt,
-        updated_at: i.updatedAt || new Date().toISOString()
-      }));
-      const { error: pushItemErr } = await client.from('shopping_list_items').upsert(itemPayload, { onConflict: 'id' });
+      const { error: pushItemErr } = await upsertShoppingListItemsWithFallback(client, householdId, itemsToPush);
       if (!pushItemErr) {
         itemsToPush.forEach((i) => syncedIds.add(i.id));
       }
@@ -1727,25 +1812,7 @@ export function setupRealtimeSubscriptions(): void {
           const existingLocal = await db.shoppingListItems.get(item.id);
           markIdsSynced(householdId, [item.id]);
 
-          await db.shoppingListItems.put({
-            id: item.id,
-            listId: item.list_id,
-            productId: item.product_id || undefined,
-            name: item.name,
-            category: item.category,
-            brand: item.brand || undefined,
-            alternativeBrands: item.alternative_brands || undefined,
-            selectedBrand: item.selected_brand || undefined,
-            imageUrl: item.image_url || undefined,
-            quantity: Number(item.quantity || 1),
-            unit: item.unit,
-            averagePrice: Number(item.average_price || 0),
-            lastPrice: Number(item.last_price || 0),
-            isChecked: Boolean(item.is_checked),
-            notes: item.notes || undefined,
-            createdAt: item.created_at,
-            updatedAt: item.updated_at || item.created_at
-          });
+          await db.shoppingListItems.put(mapRemoteShoppingListItem(item, existingLocal));
 
           // Shared Household Notification (only if triggered by another device)
           if (!isRecentLocalAction(item.id)) {
@@ -1753,7 +1820,9 @@ export function setupRealtimeSubscriptions(): void {
             if (prefs.listSharedAlerts) {
               if (payload.eventType === 'INSERT' && !existingLocal && !item.is_checked) {
                 sendLocalNotification('🛒 Novo item na lista!', {
-                  body: `"${item.name}" foi adicionado à lista de compras.`,
+                  body: item.added_by_name
+                    ? `"${item.name}" foi adicionado por ${item.added_by_name}.`
+                    : `"${item.name}" foi adicionado à lista de compras.`,
                   tag: `item-add-${item.id}`
                 }).catch(console.warn);
               } else if (
@@ -2022,26 +2091,7 @@ export async function pushSingleItem(item: ShoppingListItem): Promise<void> {
       }
     }
 
-    const { error } = await client.from('shopping_list_items').upsert({
-      id: item.id,
-      household_id: session.householdId,
-      list_id: item.listId,
-      product_id: item.productId || null,
-      name: item.name,
-      category: item.category,
-      brand: item.brand || null,
-      alternative_brands: item.alternativeBrands || [],
-      selected_brand: item.selectedBrand || null,
-      image_url: item.imageUrl || null,
-      quantity: item.quantity,
-      unit: item.unit,
-      average_price: item.averagePrice || 0,
-      last_price: item.lastPrice || 0,
-      is_checked: item.isChecked,
-      notes: item.notes || null,
-      created_at: item.createdAt,
-      updated_at: item.updatedAt || new Date().toISOString()
-    }, { onConflict: 'id' });
+    const { error } = await upsertShoppingListItemsWithFallback(client, session.householdId, [item]);
 
     if (!error) {
       markIdsSynced(session.householdId, [item.id]);

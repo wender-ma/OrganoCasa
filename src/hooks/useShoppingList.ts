@@ -8,7 +8,8 @@ import {
   deleteMultipleItems,
   pushSingleList,
   pushSingleProduct,
-  getCurrentSession
+  getCurrentSession,
+  resolveCurrentItemAuthor
 } from '../services/supabaseSync';
 
 function useShoppingListState() {
@@ -107,6 +108,7 @@ function useShoppingListState() {
   }) {
     const targetListId = await ensureActiveList();
     const now = new Date().toISOString();
+    const author = await resolveCurrentItemAuthor();
 
     // 1. Check if product already exists in DB or create it
     let prodId = data.productId;
@@ -160,6 +162,9 @@ function useShoppingListState() {
       lastPrice: data.lastPrice || 0,
       isChecked: false,
       notes: data.notes,
+      addedByUserId: author.addedByUserId,
+      addedByMemberId: author.addedByMemberId,
+      addedByName: author.addedByName,
       createdAt: now,
       updatedAt: now
     };

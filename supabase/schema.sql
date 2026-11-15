@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS public.shopping_list_items (
   last_price NUMERIC(10,2) DEFAULT 0,
   is_checked BOOLEAN DEFAULT FALSE,
   notes TEXT,
+  added_by_user_id TEXT,
+  added_by_member_id TEXT,
+  added_by_name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
