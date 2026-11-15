@@ -1,13 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import {
   X,
-  FileCode,
   Camera,
   QrCode,
   UploadCloud,
   FileText,
   AlertCircle,
-  CheckCircle2,
   Sparkles,
   Loader2,
   Key,
@@ -15,7 +13,8 @@ import {
   Video,
   ExternalLink,
   Clipboard,
-  Check
+  Check,
+  ScanBarcode
 } from 'lucide-react';
 import {
   parseSEFAZXml,
@@ -47,7 +46,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   onClose,
   onReceiptParsed
 }) => {
-  const [activeTab, setActiveTab] = useState<'qr' | 'key' | 'xml' | 'ocr' | 'demo'>('qr');
+  const [activeTab, setActiveTab] = useState<'qr' | 'ocr' | 'key' | 'demo'>('qr');
   const [isProcessing, setIsProcessing] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string>('');
   const [ocrProgress, setOcrProgress] = useState<number>(0);
@@ -67,29 +66,23 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState(getGeminiApiKey());
 
-  // Callbacks memoizados no topo para respeitar as Regras dos Hooks do React
+  // Callbacks memoizados no topo para respeitar as Regras dos Hooks do React (Invariante F)
   const handleProcessQR = useCallback(
     async (qrString: string) => {
       setIsProcessing(true);
-      setOcrStatus('Consultando NFC-e na SEFAZ em segundo plano...');
+      setOcrStatus('Consultando NFC-e na SEFAZ...');
       setErrorMessage(null);
 
       try {
-        console.log('[ReceiptUploadModal] Processando QR Code:', qrString);
+        console.log('[ReceiptUploadModal] Processando QR Code / Chave:', qrString);
         const parsed = await parseQRCodeUrl(qrString);
-        console.log('[ReceiptUploadModal] Dados parseados do QR Code:', {
-          storeName: parsed.storeName,
-          accessKey: parsed.accessKey,
-          itemCount: parsed.items?.length,
-          items: parsed.items
-        });
         onReceiptParsed(parsed);
         onClose();
       } catch (err: any) {
         console.warn('[ReceiptUploadModal] Erro ao processar QR Code:', err);
         setErrorMessage(
           err.message ||
-            'Não foi possível ler os produtos do link da NFC-e. Você pode tirar foto do cupom ou carregar o XML.'
+            'Não foi possível ler os produtos do link da NFC-e. Use a aba "Foto / PDF" para ler o cupom com IA.'
         );
       } finally {
         setIsProcessing(false);
@@ -108,6 +101,79 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
       handleProcessQR(code);
     },
     [handleProcessQR]
+  );
+
+  const handleProcessFilesList = useCallback(
+    async (fileList: File[]) => {
+      if (fileList.length === 0) return;
+
+      setIsProcessing(true);
+      setErrorMessage(null);
+      setOcrProgress(10);
+
+      try {
+        // Compatibilidade invisível caso alguém envie um arquivo .xml
+        const xmlFile = fileList.find(
+          (f) => f.name.toLowerCase().endsWith('.xml') || f.type === 'text/xml' || f.type === 'application/xml'
+        );
+        if (xmlFile) {
+          setOcrStatus('Lendo arquivo XML da nota fiscal...');
+          const text = await xmlFile.text();
+          const parsedXml = parseSEFAZXml(text);
+          if (parsedXml.items.length === 0) {
+            throw new Error('Nenhum produto foi encontrado no arquivo XML.');
+          }
+          onReceiptParsed(parsedXml);
+          onClose();
+          return;
+        }
+
+        const hasPdf = fileList.some(
+          (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf')
+        );
+        setOcrStatus(
+          hasPdf
+            ? 'Extraindo produtos do PDF com IA Multimodal...'
+            : `Analisando ${fileList.length} foto(s) do cupom com IA Multimodal...`
+        );
+
+        const parsedData = await extractReceiptFromMultipleImages(fileList, (prog, status) => {
+          setOcrProgress(prog);
+          setOcrStatus(status);
+        });
+
+        if (parsedData.items.length === 0) {
+          if (parsedData.accessKey && parsedData.accessKey.length === 44) {
+            const byKey = await parseQRCodeUrl(parsedData.accessKey);
+            onReceiptParsed(byKey);
+            onClose();
+            return;
+          }
+          throw new Error(
+            'Não foi possível identificar os produtos nesta imagem/PDF. Tente aproximar a foto da lista de itens ou enviar um PDF legível.'
+          );
+        }
+
+        onReceiptParsed(parsedData);
+        onClose();
+      } catch (err: any) {
+        console.warn('Erro na extração de foto/PDF:', err);
+        setErrorMessage(err.message || 'Erro no reconhecimento da foto ou PDF da nota fiscal.');
+      } finally {
+        setIsProcessing(false);
+        setOcrProgress(0);
+        setOcrStatus('');
+      }
+    },
+    [onReceiptParsed, onClose]
+  );
+
+  const handleFallbackPhotoFromQrModal = useCallback(
+    (file: File) => {
+      setActiveTab('ocr');
+      handleProcessFilesList([file]);
+    },
+    [handleProcessFilesList]
   );
 
   const handleKeyInputChange = useCallback((val: string) => {
@@ -129,12 +195,20 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
 
   const handleOpenSefazWithCopiedKey = useCallback(() => {
     const cleanKey = accessKeyInput.replace(/\D/g, '');
-    if (cleanKey.length === 44 && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    if (
+      cleanKey.length === 44 &&
+      typeof navigator !== 'undefined' &&
+      navigator.clipboard?.writeText
+    ) {
       navigator.clipboard.writeText(cleanKey).catch(() => {});
       setCopiedKeySuccess(true);
       setTimeout(() => setCopiedKeySuccess(false), 2500);
     }
-    window.open('https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa', '_blank', 'noopener,noreferrer');
+    window.open(
+      'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa',
+      '_blank',
+      'noopener,noreferrer'
+    );
   }, [accessKeyInput]);
 
   const handleSubmitKey = useCallback(() => {
@@ -147,12 +221,19 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
   const handleProcessPastedText = useCallback(() => {
     if (!pastedSefazText.trim()) return;
     setIsProcessing(true);
+    setErrorMessage(null);
     setOcrStatus('Processando tabela copiada da SEFAZ...');
     try {
       const parsed = parseReceiptTextHeuristics(pastedSefazText);
       const cleanKey = accessKeyInput.replace(/\D/g, '');
       if (cleanKey.length === 44) {
         parsed.accessKey = cleanKey;
+      }
+      if (parsed.items.length === 0) {
+        setErrorMessage(
+          'Nenhum produto identificado no texto colado. Copie as linhas com Nome, Qtde e Valor da página da SEFAZ ou envie uma foto do cupom.'
+        );
+        return;
       }
       onReceiptParsed(parsed);
       onClose();
@@ -166,74 +247,20 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
 
   if (!isOpen) return null;
 
-  // 1. Process XML File
-  const handleXmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsProcessing(true);
-    setErrorMessage(null);
-
-    try {
-      const text = await file.text();
-      const parsedData = parseSEFAZXml(text);
-      if (parsedData.items.length === 0) {
-        throw new Error('Nenhum produto foi encontrado no XML.');
-      }
-      onReceiptParsed(parsedData);
-      onClose();
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao processar o arquivo XML.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // 2. Process Receipt Image(s) via AI / OCR
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageOrPdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
-    setIsProcessing(true);
-    setErrorMessage(null);
-    setOcrProgress(10);
-    setOcrStatus(`Preparando ${files.length} foto(s) do cupom...`);
-
-    try {
-      const parsedData = await extractReceiptFromMultipleImages(Array.from(files), (prog, status) => {
-        setOcrProgress(prog);
-        setOcrStatus(status);
-      });
-
-      if (parsedData.items.length === 0) {
-        parsedData.items.push({
-          id: `manual-cupom-${Date.now()}`,
-          name: `${parsedData.storeName?.toUpperCase() || 'COMPRA CUPOM FISCAL'}`,
-          quantity: 1,
-          unitPrice: parsedData.totalAmount || 0,
-          totalPrice: parsedData.totalAmount || 0,
-          unit: 'un'
-        });
-      }
-
-      onReceiptParsed(parsedData);
-      onClose();
-    } catch (err: any) {
-      console.warn('Erro na extração de imagem:', err);
-      setErrorMessage(err.message || 'Erro no reconhecimento das fotos do cupom.');
-    } finally {
-      setIsProcessing(false);
-    }
+    const list = Array.from(files);
+    e.target.value = '';
+    await handleProcessFilesList(list);
   };
 
-
-
-  // 4. Demo sample receipts for quick testing
+  // Demo sample receipts for quick testing
   const handleLoadDemoReceiptGO = () => {
     const demoData: ParsedReceiptData = {
       storeName: 'Hipermercado Goiás Alimentos (Goiânia - GO)',
       accessKey: '52240901234567000199650010001234561001234564',
-      totalAmount: 142.30,
+      totalAmount: 142.3,
       purchaseDate: new Date().toISOString(),
       rawType: 'qr_code',
       items: [
@@ -241,16 +268,16 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
           name: 'ARROZ CRISTAL TIPO 1 5KG',
           barcode: '7896001234567',
           quantity: 1,
-          unitPrice: 32.90,
-          totalPrice: 32.90,
+          unitPrice: 32.9,
+          totalPrice: 32.9,
           unit: 'pct'
         },
         {
           name: 'FEIJAO CARIOCA BARAO 1KG',
           barcode: '7896001234568',
           quantity: 2,
-          unitPrice: 8.50,
-          totalPrice: 17.00,
+          unitPrice: 8.5,
+          totalPrice: 17.0,
           unit: 'pct'
         },
         {
@@ -264,8 +291,8 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
         {
           name: 'ACUCAR CRISTAL ITAMARATY 5KG',
           quantity: 1,
-          unitPrice: 19.80,
-          totalPrice: 19.80,
+          unitPrice: 19.8,
+          totalPrice: 19.8,
           unit: 'pct'
         },
         {
@@ -293,7 +320,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
     const demoData: ParsedReceiptData = {
       storeName: 'Supermercado Central Gourmet',
       accessKey: '35260812345678000199650010001234561001234563',
-      totalAmount: 118.90,
+      totalAmount: 118.9,
       purchaseDate: new Date().toISOString(),
       rawType: 'qr_code',
       items: [
@@ -301,8 +328,8 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
           name: 'Arroz Branco Tipo 1 5kg',
           barcode: '7891234567890',
           quantity: 1,
-          unitPrice: 29.90,
-          totalPrice: 29.90,
+          unitPrice: 29.9,
+          totalPrice: 29.9,
           unit: 'pct'
         },
         {
@@ -324,15 +351,15 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
         {
           name: 'Chocolate Barra 90g',
           quantity: 2,
-          unitPrice: 6.50,
-          totalPrice: 13.00,
+          unitPrice: 6.5,
+          totalPrice: 13.0,
           unit: 'un'
         },
         {
           name: 'Sabonete em Barra 90g',
           quantity: 4,
-          unitPrice: 2.80,
-          totalPrice: 11.20,
+          unitPrice: 2.8,
+          totalPrice: 11.2,
           unit: 'un'
         }
       ]
@@ -366,7 +393,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
               <button
                 onClick={() => setShowKeyModal(true)}
                 className="p-2 text-slate-400 hover:text-emerald-600 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                title="Configurar Chave de IA Gemini (Opcional)"
+                title="Chave Personalizada de IA Gemini (Opcional — IA do Servidor já está ativa)"
               >
                 <Key className="w-4 h-4" />
               </button>
@@ -379,10 +406,13 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
             </div>
           </div>
 
-          {/* Input Methods Tabs */}
-          <div className="grid grid-cols-5 p-2 bg-slate-100 dark:bg-slate-850 gap-1 border-b border-slate-200 dark:border-slate-800">
+          {/* Simplified Input Methods Tabs (4 Tabs: QR Code, Foto / PDF, Chave 44D, Exemplo) */}
+          <div className="grid grid-cols-4 p-2 bg-slate-100 dark:bg-slate-850 gap-1 border-b border-slate-200 dark:border-slate-800">
             <button
-              onClick={() => setActiveTab('qr')}
+              onClick={() => {
+                setErrorMessage(null);
+                setActiveTab('qr');
+              }}
               className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
                 activeTab === 'qr'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
@@ -394,7 +424,25 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('key')}
+              onClick={() => {
+                setErrorMessage(null);
+                setActiveTab('ocr');
+              }}
+              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
+                activeTab === 'ocr'
+                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Camera className="w-4 h-4" />
+              <span>Foto / PDF</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setErrorMessage(null);
+                setActiveTab('key');
+              }}
               className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
                 activeTab === 'key'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
@@ -406,31 +454,10 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('ocr')}
-              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
-                activeTab === 'ocr'
-                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-            >
-              <Camera className="w-4 h-4" />
-              <span>Foto / IA</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('xml')}
-              className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
-                activeTab === 'xml'
-                  ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}
-            >
-              <FileCode className="w-4 h-4" />
-              <span>XML NF-e</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('demo')}
+              onClick={() => {
+                setErrorMessage(null);
+                setActiveTab('demo');
+              }}
               className={`py-2 px-1 text-center rounded-xl text-[11px] font-bold transition-all flex flex-col items-center justify-center space-y-1 ${
                 activeTab === 'demo'
                   ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
@@ -479,7 +506,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                           Escanear com a Câmera do Celular
                         </h4>
                         <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
-                          Aponte para o QR Code impresso no final do cupom da NFC-e da SEFAZ.
+                          Aponte para o QR Code impresso no final do cupom da NFC-e (suporta Zoom 2x para foco nítido).
                         </p>
                       </div>
                       <button
@@ -491,23 +518,27 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                       </button>
                     </div>
 
-                    {/* Quick Jump to Key Tab when QR is damaged */}
+                    {/* Quick Jump to Photo/PDF AI Tab when QR is damaged or SEFAZ is down */}
                     <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl flex items-center justify-between text-left">
                       <div className="flex items-center space-x-2.5">
                         <div className="p-2 bg-indigo-100 dark:bg-indigo-900 rounded-xl text-indigo-600 dark:text-indigo-400 shrink-0">
-                          <KeyRound className="w-4 h-4" />
+                          <Sparkles className="w-4 h-4" />
                         </div>
                         <div>
-                          <h5 className="font-bold text-slate-900 dark:text-white text-xs">QR Code ilegível ou borrado?</h5>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400">Identifique pelo número da chave de acesso</p>
+                          <h5 className="font-bold text-slate-900 dark:text-white text-xs">
+                            QR Code amassado ou falhando?
+                          </h5>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Tire 1 foto do cupom ou envie o PDF que a IA lê tudo!
+                          </p>
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => setActiveTab('key')}
+                        onClick={() => setActiveTab('ocr')}
                         className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors shadow-xs"
                       >
-                        Usar Chave
+                        Foto / PDF
                       </button>
                     </div>
 
@@ -535,22 +566,95 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                   </div>
                 )}
 
+                {activeTab === 'ocr' && (
+                  <div className="space-y-3 text-center">
+                    {/* Live Guided Camera Button */}
+                    <div className="p-5 bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl text-white space-y-2 shadow-lg shadow-emerald-700/20">
+                      <Video className="w-8 h-8 mx-auto" />
+                      <h4 className="font-bold text-sm">Tirar Foto do Cupom (IA Automática)</h4>
+                      <p className="text-xs text-emerald-100 max-w-xs mx-auto">
+                        Fotografe o papel térmico (mesmo amassado ou sem QR Code) e nossa IA extrai todos os produtos automaticamente.
+                      </p>
+                      <button
+                        onClick={() => setIsLiveCameraOpen(true)}
+                        className="px-5 py-2.5 bg-white text-emerald-800 rounded-xl text-xs font-bold shadow-md inline-flex items-center space-x-2 active:scale-95 transition-transform"
+                      >
+                        <Camera className="w-4 h-4 text-emerald-600" />
+                        <span>Abrir Câmera do Cupom</span>
+                      </button>
+                    </div>
+
+                    <div className="relative flex py-1 items-center">
+                      <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                      <span className="flex-shrink mx-3 text-[11px] text-slate-400 uppercase font-semibold">
+                        ou envie PDF ou foto salva
+                      </span>
+                      <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                    </div>
+
+                    {/* Upload PDF or Image from Gallery / Files */}
+                    <label className="block p-5 bg-slate-50 dark:bg-slate-850 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 cursor-pointer transition-colors">
+                      <div className="flex items-center justify-center gap-2 mb-1">
+                        <FileText className="w-7 h-7 text-emerald-600" />
+                        <Camera className="w-7 h-7 text-indigo-600" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-0.5">
+                        Enviar PDF da Nota ou Fotos da Galeria
+                      </span>
+                      <span className="text-[11px] text-slate-400 block mb-2.5">
+                        Aceita arquivos <strong>.PDF</strong> (DANFE / apps de mercado) ou 1 ou mais fotos (<strong>JPG, PNG, HEIC</strong>)
+                      </span>
+                      <span className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-block shadow-xs">
+                        Escolher Foto ou PDF
+                      </span>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,application/pdf,.pdf,.xml,text/xml"
+                        onChange={handleImageOrPdfUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+
                 {activeTab === 'key' && (
                   <div className="space-y-4 text-left">
-                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-1.5">
-                      <div className="flex items-center space-x-2 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
-                        <KeyRound className="w-4 h-4 text-emerald-600" />
-                        <span>Identificação via Chave de Acesso (44 Dígitos)</span>
+                    {/* Quick Camera Action for 44-Digit Key / Barcode / Receipt Photo */}
+                    <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
+                          <ScanBarcode className="w-4 h-4 text-emerald-600" />
+                          <span>Sem digitar 44 números manualmente!</span>
+                        </div>
                       </div>
                       <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                        A chave de acesso está impressa no cupom fiscal acima do QR Code (grupos de 4 dígitos). Ideal quando o código impresso estiver com falha ou danificado.
+                        Escaneie o código de barras da chave ou tire 1 foto do cupom para extrair a chave e os produtos de uma só vez:
                       </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsCameraScannerOpen(true)}
+                          className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                        >
+                          <ScanBarcode className="w-3.5 h-3.5" />
+                          <span>Ler Código de Barras</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsLiveCameraOpen(true)}
+                          className="py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Fotografar Cupom (IA)</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Digite ou cole a Chave de 44 dígitos:
+                          Ou digite/cole a Chave de 44 dígitos:
                         </label>
                         <span
                           className={`text-[11px] font-mono font-bold ${
@@ -614,13 +718,17 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                             </strong>
                           </div>
                           <div className="p-2 bg-white dark:bg-slate-850 rounded-xl">
-                            <span className="text-slate-400 block text-[10px]">CNPJ do Estabelecimento</span>
+                            <span className="text-slate-400 block text-[10px]">
+                              CNPJ do Estabelecimento
+                            </span>
                             <strong className="text-slate-900 dark:text-slate-100 font-mono">
                               {keyInspection.cnpjFormatted || '---'}
                             </strong>
                           </div>
                           <div className="p-2 bg-white dark:bg-slate-850 rounded-xl">
-                            <span className="text-slate-400 block text-[10px]">Modelo do Documento</span>
+                            <span className="text-slate-400 block text-[10px]">
+                              Modelo do Documento
+                            </span>
                             <strong className="text-slate-900 dark:text-slate-100">
                               {keyInspection.modelLabel || 'NFC-e'}
                             </strong>
@@ -667,7 +775,9 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                         onClick={() => setShowPastedSection((prev) => !prev)}
                         className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1 font-medium"
                       >
-                        <span>{showPastedSection ? '▼' : '▶'} Copiou a tabela da tela da SEFAZ? Colar aqui</span>
+                        <span>
+                          {showPastedSection ? '▼' : '▶'} Copiou os itens da tela da SEFAZ? Colar aqui
+                        </span>
                       </button>
 
                       {showPastedSection && (
@@ -690,78 +800,6 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {activeTab === 'ocr' && (
-                  <div className="space-y-3 text-center">
-                    {/* Live Guided Camera Button */}
-                    <div className="p-5 bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl text-white space-y-2 shadow-lg shadow-emerald-700/20">
-                      <Video className="w-8 h-8 mx-auto" />
-                      <h4 className="font-bold text-sm">Scanner Guiado com Câmera</h4>
-                      <p className="text-xs text-emerald-100 max-w-xs mx-auto">
-                        Enquadre o cupom diretamente com guias visuais e capture para processamento com IA.
-                      </p>
-                      <button
-                        onClick={() => setIsLiveCameraOpen(true)}
-                        className="px-5 py-2.5 bg-white text-emerald-800 rounded-xl text-xs font-bold shadow-md inline-flex items-center space-x-2 active:scale-95 transition-transform"
-                      >
-                        <Camera className="w-4 h-4 text-emerald-600" />
-                        <span>Abrir Câmera Guiada</span>
-                      </button>
-                    </div>
-
-                    <div className="relative flex py-1 items-center">
-                      <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
-                      <span className="flex-shrink mx-3 text-[11px] text-slate-400 uppercase font-semibold">
-                        ou envie uma foto salva
-                      </span>
-                      <div className="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
-                    </div>
-
-                    {/* Upload from Gallery / File */}
-                    <label className="block p-5 bg-slate-50 dark:bg-slate-850 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 cursor-pointer transition-colors">
-                      <Camera className="w-8 h-8 text-emerald-600 mx-auto mb-1" />
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-0.5">
-                        Escolher 1 ou Mais Fotos da Galeria
-                      </span>
-                      <span className="text-[11px] text-slate-400 block mb-2">
-                        Selecione as fotos das partes do cupom fiscal (JPG, PNG)
-                      </span>
-                      <span className="px-4 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-semibold inline-block">
-                        Carregar Fotos
-                      </span>
-                      <input
-                        type="file"
-                        multiple
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                )}
-
-                {activeTab === 'xml' && (
-                  <div className="space-y-4 text-center">
-                    <label className="block p-8 bg-slate-50 dark:bg-slate-800/80 rounded-3xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 cursor-pointer transition-colors">
-                      <FileCode className="w-12 h-12 text-emerald-600 mx-auto mb-2" />
-                      <h4 className="font-bold text-slate-900 dark:text-white text-sm mb-1">
-                        Selecionar Arquivo .XML da SEFAZ
-                      </h4>
-                      <p className="text-xs text-slate-400 max-w-xs mx-auto mb-3">
-                        Envie o arquivo oficial da NF-e / NFC-e fornecido pelo mercado.
-                      </p>
-                      <span className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs inline-block">
-                        Escolher Arquivo XML
-                      </span>
-                      <input
-                        type="file"
-                        accept=".xml,text/xml"
-                        onChange={handleXmlUpload}
-                        className="hidden"
-                      />
-                    </label>
                   </div>
                 )}
 
@@ -826,6 +864,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
               setIsCameraScannerOpen(false);
               setActiveTab('key');
             }}
+            onFallbackPhotoExtract={handleFallbackPhotoFromQrModal}
           />
 
           {/* Live Receipt AI Camera Modal */}
@@ -845,21 +884,21 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                     <Key className="w-4 h-4 text-emerald-600" />
-                    <span>Chave da API Gemini (Grátis)</span>
+                    <span>Chave da API Gemini (Opcional)</span>
                   </h4>
                   <button onClick={() => setShowKeyModal(false)} className="text-slate-400">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Insira sua chave gratuita do Google AI Studio para turbinar a extração de fotos com IA Multimodal de alta precisão.
+                  A leitura por IA já funciona automaticamente pelo servidor. Se desejar usar uma chave própria do Google AI Studio, informe abaixo:
                 </p>
                 <form onSubmit={handleSaveKey} className="space-y-3 pt-1">
                   <input
                     type="password"
                     value={geminiKeyInput}
                     onChange={(e) => setGeminiKeyInput(e.target.value)}
-                    placeholder="AIzaSy..."
+                    placeholder="AIzaSy... (deixe em branco para usar o servidor padrão)"
                     className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500"
                   />
                   <div className="flex justify-end gap-2">

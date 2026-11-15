@@ -18,12 +18,16 @@ export async function preprocessReceiptImage(
 ): Promise<{ blob: Blob; dataUrl: string }> {
   const {
     enhanceForOCR = false,
-    contrast = 125,
-    brightness = 10,
+    contrast = 35,
+    brightness = 0,
     maxWidth = 1800,
     maxHeight = 2600,
     quality = 0.92
   } = options;
+
+  if (typeof imageSource !== 'string' && imageSource.type === 'application/pdf') {
+    return { blob: imageSource, dataUrl: '' };
+  }
 
   return new Promise((resolve, reject) => {
     const img = new Image();

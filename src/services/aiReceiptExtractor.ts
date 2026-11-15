@@ -1,5 +1,4 @@
-import { ParsedReceiptData, parseReceiptImage } from './receiptParser';
-import { ReceiptItem } from '../types';
+import { ParsedReceiptData, parseReceiptImage, parseReceiptTextHeuristics } from './receiptParser';
 import { preprocessReceiptImage } from './imagePreprocessor';
 
 export function getGeminiApiKey(): string {
@@ -22,7 +21,7 @@ function fileToBase64(file: Blob): Promise<string> {
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
-      const base64 = result.split(',')[1];
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
       resolve(base64);
     };
     reader.onerror = reject;
@@ -30,8 +29,42 @@ function fileToBase64(file: Blob): Promise<string> {
   });
 }
 
+function isPdfBlob(fileOrBlob: Blob): boolean {
+  if (fileOrBlob.type === 'application/pdf') return true;
+  if ('name' in fileOrBlob && typeof (fileOrBlob as File).name === 'string') {
+    return (fileOrBlob as File).name.toLowerCase().endsWith('.pdf');
+  }
+  return false;
+}
+
 /**
- * Intelligent multimodal extraction using Gemini Vision API with automatic fallback to local OCR
+ * Extracts readable text literals from a PDF binary buffer as an offline fallback
+ */
+async function extractFallbackTextFromPdf(pdfBlob: Blob): Promise<string> {
+  try {
+    const buf = await pdfBlob.arrayBuffer();
+    const decoder = new TextDecoder('latin1');
+    const raw = decoder.decode(buf);
+    const chunks: string[] = [];
+
+    // Extract parenthesized PDF text strings (...)
+    const regex = /\(([^()\\]{2,200})\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(raw)) !== null) {
+      const cleaned = m[1].replace(/[\x00-\x1F]/g, ' ').trim();
+      if (cleaned.length >= 2) {
+        chunks.push(cleaned);
+      }
+    }
+    return chunks.join('\n');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Intelligent multimodal extraction using Server-Side Gemini Vision/PDF API (Oracle São Paulo Agent)
+ * with automatic fallback to client-side Gemini and local OCR
  */
 export async function extractReceiptWithAI(
   imageFileOrUrl: File | Blob | string,
@@ -41,105 +74,143 @@ export async function extractReceiptWithAI(
 }
 
 /**
- * Extracts receipt data across 1 or more photos (e.g. top and bottom of long thermal receipts)
+ * Extracts receipt data across 1 or more photos or PDF documents
  */
 export async function extractReceiptFromMultipleImages(
   images: (File | Blob | string)[],
   onProgress?: (progress: number, status: string) => void
 ): Promise<ParsedReceiptData> {
   if (images.length === 0) {
-    throw new Error('Nenhuma foto selecionada para leitura.');
+    throw new Error('Nenhum arquivo selecionado para leitura.');
   }
 
-  const apiKey = getGeminiApiKey();
+  const customApiKey = getGeminiApiKey();
 
-  // 1. Convert all inputs to raw Blobs
-  onProgress?.(12, `Otimizando ${images.length} foto(s) do cupom...`);
+  // 1. Convert all inputs to Blobs
+  onProgress?.(12, `Preparando ${images.length} arquivo(s) da nota fiscal...`);
   const rawBlobs: Blob[] = [];
 
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
-    let rawBlob: Blob;
     if (typeof img === 'string') {
       const res = await fetch(img);
-      rawBlob = await res.blob();
+      rawBlobs.push(await res.blob());
     } else {
-      rawBlob = img;
+      rawBlobs.push(img);
     }
-    rawBlobs.push(rawBlob);
   }
 
-  // 2. Preprocess with natural colors for Vision AI (no harsh binarization)
-  const naturalBlobs: Blob[] = [];
+  // 2. Prepare files for Multimodal AI (keep PDFs as application/pdf, optimize images with natural colors)
+  const preparedFiles: { mimeType: string; data: string; rawBlob: Blob; isPdf: boolean }[] = [];
+
   for (const blob of rawBlobs) {
-    const processed = await preprocessReceiptImage(blob, {
-      enhanceForOCR: false,
-      maxWidth: 1600,
-      maxHeight: 2400,
-      quality: 0.9
-    });
-    naturalBlobs.push(processed.blob);
+    if (isPdfBlob(blob)) {
+      const b64 = await fileToBase64(blob);
+      preparedFiles.push({
+        mimeType: 'application/pdf',
+        data: b64,
+        rawBlob: blob,
+        isPdf: true
+      });
+    } else {
+      const processed = await preprocessReceiptImage(blob, {
+        enhanceForOCR: false,
+        maxWidth: 1600,
+        maxHeight: 2400,
+        quality: 0.9
+      });
+      const b64 = await fileToBase64(processed.blob);
+      preparedFiles.push({
+        mimeType: 'image/jpeg',
+        data: b64,
+        rawBlob: blob,
+        isPdf: false
+      });
+    }
   }
 
-  // 3. If Gemini API key is configured and online, use Gemini Flash Vision with all images
-  if (apiKey && navigator.onLine) {
+  // 3. Primary Path: Server-Side Gemini Multimodal API (/api/extract-receipt -> Oracle São Paulo Agent)
+  onProgress?.(35, 'Analisando nota fiscal com IA Multimodal...');
+  const serverEndpoints = [
+    '/api/extract-receipt',
+    'https://hub.wma.ia.br/organocasa-api/extract-receipt'
+  ];
+
+  for (const endpoint of serverEndpoints) {
     try {
-      onProgress?.(35, `Analisando ${naturalBlobs.length} foto(s) com IA Multimodal...`);
-      const base64List = await Promise.all(naturalBlobs.map(fileToBase64));
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 38000) : null;
 
-      const prompt = `Você é um especialista em leitura e extração de Cupons Fiscais (NFC-e / SAT / Danfe) de supermercados e mercados do Brasil.
-Você recebeu ${base64List.length} foto(s) que compõem o mesmo cupom fiscal (podem ser partes diferentes de um cupom longo: topo, meio, rodapé).
-Analise todas as imagens em conjunto, remova itens duplicados caso haja sobreposição de fotos e extraia com máxima precisão todas as informações no formato JSON estrito abaixo:
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OrganoCasa-Client': 'organocasa-pwa-v1'
+        },
+        body: JSON.stringify({
+          files: preparedFiles.map((f) => ({ mimeType: f.mimeType, data: f.data })),
+          ...(customApiKey ? { apiKey: customApiKey } : {})
+        }),
+        signal: controller?.signal
+      }).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
 
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.success && json?.data) {
+          onProgress?.(100, 'Nota fiscal processada com sucesso pela IA!');
+          return json.data as ParsedReceiptData;
+        }
+      }
+    } catch (srvErr) {
+      console.warn(`[AI:Extractor] Tentativa em ${endpoint} falhou:`, srvErr);
+    }
+  }
+
+  // 4. Secondary Path: Direct Client-Side Gemini call if user configured a custom key in localStorage
+  if (customApiKey) {
+    try {
+      onProgress?.(45, 'Consultando IA Gemini com chave personalizada...');
+      const prompt = `Extraia todos os produtos e dados deste cupom fiscal/nota fiscal brasileira em JSON estrito:
 {
-  "storeName": "Nome do Supermercado/Empresa (ex: Supermercado Central)",
-  "accessKey": "Chave de 44 dígitos se visível ou string vazia",
-  "purchaseDate": "Data da compra em formato ISO YYYY-MM-DDTHH:mm:ss.000Z ou data atual se não encontrar",
+  "storeName": "Nome do Supermercado",
+  "accessKey": "44 dígitos numéricos ou vazio",
+  "purchaseDate": "ISO 8601",
   "totalAmount": 0.00,
   "items": [
-    {
-      "name": "Nome claro do produto em maiúsculas (ex: ARROZ BRANCO 5KG)",
-      "quantity": 1,
-      "unitPrice": 0.00,
-      "totalPrice": 0.00,
-      "unit": "un|kg|g|l|ml|pct|cx|dz",
-      "barcode": "código EAN se visível ou null"
-    }
+    { "name": "NOME DO PRODUTO", "quantity": 1, "unitPrice": 0.00, "totalPrice": 0.00, "unit": "un|kg|g|l|ml|pct|cx|dz", "barcode": null }
   ]
-}
-
-Regras obrigatórias:
-1. Extraia TODOS os produtos listados no cupom fiscal.
-2. Identifique corretamente unidades de peso (kg, g) e unidades simples (un, pct, cx).
-3. Calcule o preço unitário e valor total real com descontos já subtraídos.
-4. Retorne APENAS o JSON válido sem marcações markdown ao redor.`;
-
+}`;
       const parts: any[] = [{ text: prompt }];
-      for (const b64 of base64List) {
+      for (const f of preparedFiles) {
         parts.push({
           inline_data: {
-            mime_type: 'image/jpeg',
-            data: b64
+            mime_type: f.mimeType,
+            data: f.data
           }
         });
       }
 
-      // Try gemini-1.5-flash with fallback to gemini-2.0-flash
-      const modelsToTry = ['gemini-1.5-flash', 'gemini-2.0-flash'];
-      let lastError: any = null;
-      let textResponse: string | null = null;
+      const modelsToTry = [
+        'gemini-3.5-flash',
+        'gemini-3.5-flash-lite',
+        'gemini-3.8-flash',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash'
+      ];
 
       for (const model of modelsToTry) {
         try {
           const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${customApiKey}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: [{ parts }],
                 generationConfig: {
-                  response_mime_type: 'application/json',
+                  responseMimeType: 'application/json',
                   temperature: 0.1
                 }
               })
@@ -148,99 +219,110 @@ Regras obrigatórias:
 
           if (response.ok) {
             const data = await response.json();
-            textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (textResponse) break;
-          } else {
-            const errData = await response.text();
-            lastError = new Error(`API Gemini (${model}): ${response.status} - ${errData}`);
+            let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (textResponse) {
+              let cleanJson = textResponse.trim();
+              if (cleanJson.startsWith('```')) {
+                cleanJson = cleanJson
+                  .replace(/^```(?:json)?\s*\n?/, '')
+                  .replace(/\n?```\s*$/, '')
+                  .trim();
+              }
+              const parsedJson = JSON.parse(cleanJson);
+              const extractedItems = (parsedJson.items || [])
+                .filter((it: any) => it && typeof it.name === 'string' && it.name.trim().length >= 2)
+                .map((it: any, idx: number) => ({
+                  id: `ai-item-${idx + 1}-${Date.now()}`,
+                  name: it.name.trim().toUpperCase(),
+                  barcode: it.barcode || undefined,
+                  quantity: Number(it.quantity) || 1,
+                  unitPrice: Number(it.unitPrice) || 0,
+                  totalPrice:
+                    Number(it.totalPrice) || Number(it.quantity || 1) * Number(it.unitPrice || 0),
+                  unit: it.unit || 'un'
+                }));
+
+              onProgress?.(100, 'Cupom processado com sucesso!');
+              return {
+                storeName: parsedJson.storeName || 'Supermercado',
+                accessKey: parsedJson.accessKey
+                  ? String(parsedJson.accessKey).replace(/\D/g, '')
+                  : undefined,
+                totalAmount: Number(
+                  (
+                    parsedJson.totalAmount ||
+                    extractedItems.reduce((s: number, i: any) => s + i.totalPrice, 0)
+                  ).toFixed(2)
+                ),
+                purchaseDate: parsedJson.purchaseDate || new Date().toISOString(),
+                rawType: 'ocr_image',
+                items: extractedItems
+              };
+            }
           }
-        } catch (mErr) {
-          lastError = mErr;
-        }
+        } catch {}
       }
-
-      if (!textResponse) {
-        throw lastError || new Error('Nenhuma resposta retornada pela IA.');
-      }
-
-      // Clean JSON string (remove markdown fences if present)
-      let cleanJson = textResponse.trim();
-      if (cleanJson.startsWith('```')) {
-        cleanJson = cleanJson.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-      }
-
-      const parsedJson = JSON.parse(cleanJson);
-
-      onProgress?.(100, 'Cupom processado com sucesso!');
-
-      const extractedItems = (parsedJson.items || []).map((it: any, idx: number) => ({
-        id: `ai-item-${idx + 1}-${Date.now()}`,
-        name: it.name || `PRODUTO ${idx + 1}`,
-        barcode: it.barcode || undefined,
-        quantity: Number(it.quantity) || 1,
-        unitPrice: Number(it.unitPrice) || 0,
-        totalPrice: Number(it.totalPrice) || Number(it.quantity || 1) * Number(it.unitPrice || 0),
-        unit: it.unit || 'un'
-      }));
-
-      return {
-        storeName: parsedJson.storeName || 'Supermercado',
-        accessKey: parsedJson.accessKey || undefined,
-        totalAmount: Number((parsedJson.totalAmount || extractedItems.reduce((s: number, i: any) => s + i.totalPrice, 0)).toFixed(2)),
-        purchaseDate: parsedJson.purchaseDate || new Date().toISOString(),
-        rawType: 'ocr_image',
-        items: extractedItems
-      };
-    } catch (aiError) {
-      console.warn('Falha na IA Gemini, acionando fallback OCR local:', aiError);
-      onProgress?.(50, 'Acionando motor OCR local...');
+    } catch (clientAiErr) {
+      console.warn('[AI:Extractor] Falha na chamada direta Gemini:', clientAiErr);
     }
   }
 
-  // 4. Fallback: Local Tesseract.js OCR across all photos with enhanced contrast
-  onProgress?.(55, 'Preparando leitura OCR local...');
-  const ocrBlobs: Blob[] = [];
-  for (const blob of rawBlobs) {
-    const ocrPrepared = await preprocessReceiptImage(blob, {
-      enhanceForOCR: true,
-      contrast: 130,
-      brightness: 12
-    });
-    ocrBlobs.push(ocrPrepared.blob);
-  }
-
+  // 5. Fallback: Local OCR (for images) and PDF stream text parser (for PDFs)
+  onProgress?.(55, 'Executando leitura local de contingência...');
   const allParsed: ParsedReceiptData[] = [];
-  for (let i = 0; i < ocrBlobs.length; i++) {
+
+  for (let i = 0; i < preparedFiles.length; i++) {
+    const fileEntry = preparedFiles[i];
     onProgress?.(
-      60 + Math.round((i / ocrBlobs.length) * 35),
-      `Lendo foto ${i + 1} de ${ocrBlobs.length}...`
+      60 + Math.round((i / preparedFiles.length) * 35),
+      `Lendo arquivo ${i + 1} de ${preparedFiles.length}...`
     );
-    const parsed = await parseReceiptImage(ocrBlobs[i]);
-    allParsed.push(parsed);
+
+    if (fileEntry.isPdf) {
+      const pdfText = await extractFallbackTextFromPdf(fileEntry.rawBlob);
+      if (pdfText) {
+        allParsed.push(parseReceiptTextHeuristics(pdfText));
+      }
+    } else {
+      const ocrPrepared = await preprocessReceiptImage(fileEntry.rawBlob, {
+        enhanceForOCR: true,
+        contrast: 35,
+        brightness: 0
+      });
+      const parsed = await parseReceiptImage(ocrPrepared.blob);
+      allParsed.push(parsed);
+    }
   }
 
-  const mergedItems = allParsed.flatMap((p) => p.items);
-  let totalAmount = allParsed.reduce((acc, p) => acc + p.totalAmount, 0) || mergedItems.reduce((acc, it) => acc + it.totalPrice, 0);
-
-  // If OCR couldn't identify individual lines but has a store or total, provide at least 1 item
-  if (mergedItems.length === 0) {
-    mergedItems.push({
-      id: `ocr-item-fallback-${Date.now()}`,
-      name: `${allParsed[0]?.storeName?.toUpperCase() || 'COMPRA SUPERMERCADO'}`,
-      quantity: 1,
-      unitPrice: totalAmount > 0 ? totalAmount : 50.00,
-      totalPrice: totalAmount > 0 ? totalAmount : 50.00,
-      unit: 'un'
-    });
-    if (totalAmount === 0) totalAmount = 50.00;
+  // Deduplicate items across multiple overlapping photos by name + totalPrice
+  const seenKeys = new Set<string>();
+  const mergedItems = [];
+  for (const p of allParsed) {
+    for (const it of p.items) {
+      const dedupeKey = `${it.name.toUpperCase()}|${it.totalPrice.toFixed(2)}`;
+      if (!seenKeys.has(dedupeKey)) {
+        seenKeys.add(dedupeKey);
+        mergedItems.push(it);
+      }
+    }
   }
+
+  // Do NOT sum totalAmount across multiple overlapping photos of the same receipt;
+  // take the highest detected totalAmount or the sum of deduplicated items.
+  const maxDetectedTotal = allParsed.reduce((max, p) => Math.max(max, p.totalAmount || 0), 0);
+  const itemsSum = mergedItems.reduce((acc, it) => acc + it.totalPrice, 0);
+  const totalAmount = maxDetectedTotal > 0 ? maxDetectedTotal : itemsSum;
 
   return {
-    storeName: allParsed[0]?.storeName || 'Supermercado',
+    storeName:
+      allParsed.find((p) => p.storeName && p.storeName !== 'Supermercado')?.storeName ||
+      allParsed[0]?.storeName ||
+      'Supermercado',
     accessKey: allParsed.find((p) => p.accessKey)?.accessKey,
     totalAmount: Number(totalAmount.toFixed(2)),
     purchaseDate: allParsed[0]?.purchaseDate || new Date().toISOString(),
     rawType: 'ocr_image',
+    requiresManualItems: mergedItems.length === 0,
     items: mergedItems
   };
 }

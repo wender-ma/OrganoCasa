@@ -9,8 +9,66 @@ function createTimeoutSignal(ms) {
   return controller.signal;
 }
 
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+  'Cache-Control': 'no-cache',
+  Pragma: 'no-cache'
+};
+
 /**
- * Robust HTML parser for SEFAZ Danfe NFC-e portals (Goiás, SP, RS, etc.)
+ * Detects WAF block pages (F5 BigIP ASM), SEFAZ 503 maintenance pages, or CAPTCHA walls
+ */
+function isBlockedOrErrorHtml(html) {
+  if (!html || typeof html !== 'string' || html.trim().length < 50) return true;
+  const hasProductMarkers =
+    /id=["']Item\s*/i.test(html) ||
+    /class=["']txtTit/i.test(html) ||
+    /class=["']xProd/i.test(html) ||
+    /id=["']tabResult["']/i.test(html);
+  if (hasProductMarkers) return false;
+
+  if (
+    /Acesso Negado/i.test(html) ||
+    /bloqueada por nossa pol[ií]tica de seguran[cç]a/i.test(html) ||
+    /<title>\s*Algo deu errado!\s*<\/title>/i.test(html) ||
+    /Servi[cç]o Temporariamente Indispon[ií]vel/i.test(html) ||
+    /The requested URL was rejected/i.test(html)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Unescapes XML/HTML entities returned by SEFAZ render endpoints
+ */
+function unescapeHtmlEntities(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&atilde;/gi, 'ã')
+    .replace(/&otilde;/gi, 'õ')
+    .replace(/&aacute;/gi, 'á')
+    .replace(/&eacute;/gi, 'é')
+    .replace(/&iacute;/gi, 'í')
+    .replace(/&oacute;/gi, 'ó')
+    .replace(/&uacute;/gi, 'ú')
+    .replace(/&acirc;/gi, 'â')
+    .replace(/&ecirc;/gi, 'ê')
+    .replace(/&ocirc;/gi, 'ô')
+    .replace(/&ccedil;/gi, 'ç');
+}
+
+/**
+ * Robust HTML parser for SEFAZ Danfe NFC-e portals (Goiás, SP, RS, MG, etc.)
  */
 function parseSefazHtml(html, fallbackKey) {
   let storeName = 'Supermercado';
@@ -19,21 +77,39 @@ function parseSefazHtml(html, fallbackKey) {
   let accessKey = fallbackKey || '';
   const items = [];
 
+  if (!html || isBlockedOrErrorHtml(html)) {
+    return {
+      success: false,
+      storeName,
+      accessKey,
+      totalAmount: 0,
+      purchaseDate,
+      items: []
+    };
+  }
+
   // 1. Extract Store Name
   const storeMatch =
-    html.match(/class=["'](?:txtTopo|text-center|xNome|bold-titulo|titulo)["'][^>]*>([^<]+)</i) ||
-    html.match(/<div id=["']u20["'][^>]*>([^<]+)</i) ||
+    html.match(/<div[^>]*id=["']u20["'][^>]*>([^<]+)</i) ||
+    html.match(/class=["'](?:txtTopo|xNome|bold-titulo|titulo)["'][^>]*>([^<]+)</i) ||
     html.match(/Raz[aã]o Social:\s*<strong[^>]*>([^<]+)<\/strong>/i);
 
   if (storeMatch && storeMatch[1]) {
-    storeName = storeMatch[1].trim().replace(/&amp;/g, '&');
+    const candidate = storeMatch[1].trim().replace(/&amp;/g, '&');
+    if (
+      candidate &&
+      !/^(Acesso Negado|Algo deu errado|Secretaria|DOCUMENTO AUXILIAR|DANFE)/i.test(candidate)
+    ) {
+      storeName = candidate;
+    }
   }
 
   // 2. Extract Access Key if not present
   if (!accessKey) {
-    const keyMatch = html.match(/\b(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})\b/);
+    const keyMatch =
+      html.match(/\b((?:\d{4}\s*){10}\d{4})\b/) || html.match(/\b(\d{44})\b/);
     if (keyMatch) {
-      accessKey = keyMatch[1].replace(/\s+/g, '');
+      accessKey = keyMatch[1].replace(/\D/g, '');
     }
   }
 
@@ -59,11 +135,11 @@ function parseSefazHtml(html, fallbackKey) {
 
   // 4. Extract Total Amount
   const totalMatch =
-    html.match(/Valor a pagar R\$:<\/label><span class=["']totalNumb txtMax["']>([^<]+)<\/span>/i) ||
+    html.match(/Valor a pagar R\$:<\/label>\s*<span[^>]*class=["'][^"']*totalNumb[^"']*txtMax[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
+    html.match(/Valor a pagar[^<]*<\/label>\s*<span[^>]*class=["'][^"']*totalNumb[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
     html.match(/class=["'](?:totalNFe|txtMax|vNF|total-nota)["'][^>]*>([^<]+)</i) ||
     html.match(/Valor a pagar[^<]*<span[^>]*class=["']totalNFe[^"']*["'][^>]*>([^<]+)</i) ||
-    html.match(/VALOR TOTAL(?:\s*R\$)?\s*[:]?\s*<[^>]*>([^<]+)</i) ||
-    html.match(/class=["']valor["'][^>]*>\s*(?:R\$\s*)?(\d+[\.,]\d{2})\s*</i);
+    html.match(/VALOR TOTAL(?:\s*R\$)?\s*[:]?\s*<[^>]*>([^<]+)</i);
 
   if (totalMatch && totalMatch[1]) {
     const cleanTotal = totalMatch[1].replace(/[^\d,\.]/g, '').replace(',', '.');
@@ -83,17 +159,17 @@ function parseSefazHtml(html, fallbackKey) {
 
     const qtyM =
       rowHtml.match(/class=["']Rqu?an?t?d?[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?\s*([0-9\.,]+)/i) ||
-      rowHtml.match(/Qtde\.:(?:\s*<\/strong>)?\s*([0-9\.,]+)/i) ||
+      rowHtml.match(/Qtde\.?\s*:(?:\s*<\/strong>)?\s*([0-9\.,]+)/i) ||
       rowHtml.match(/class=["']Rqu?an?t?d?[^"']*["'][^>]*>([^<]+)</i);
 
     const unitM =
       rowHtml.match(/class=["']RUN[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?\s*([a-zA-Z]+)/i) ||
-      rowHtml.match(/UN:\s*(?:\s*<\/strong>)?\s*([a-zA-Z]+)/i) ||
+      rowHtml.match(/UN\s*:\s*(?:\s*<\/strong>)?\s*([a-zA-Z]+)/i) ||
       rowHtml.match(/class=["']RUN[^"']*["'][^>]*>([^<]+)</i);
 
     const unitPriceM =
       rowHtml.match(/class=["']RvlUnit[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i) ||
-      rowHtml.match(/Vl\.\s*Unit\.:(?:\s*<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i) ||
+      rowHtml.match(/Vl\.\s*Unit\.?\s*:(?:\s*<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i) ||
       rowHtml.match(/class=["']RvlUnit[^"']*["'][^>]*>([^<]+)</i);
 
     const totalM =
@@ -127,7 +203,8 @@ function parseSefazHtml(html, fallbackKey) {
 
   // Fallback: Generic table rows if #tabResult structure was different
   if (items.length === 0) {
-    const genericItemRegex = /<td[^>]*class=["'](?:txtTit|desc-produto|nome-item)["'][^>]*>([\s\S]*?)<\/td>[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/gi;
+    const genericItemRegex =
+      /<td[^>]*class=["'](?:txtTit|desc-produto|nome-item)["'][^>]*>([\s\S]*?)<\/td>[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>/gi;
     let genMatch;
     while ((genMatch = genericItemRegex.exec(html)) !== null) {
       const pName = genMatch[1].replace(/<[^>]+>/g, '').trim().toUpperCase();
@@ -150,7 +227,7 @@ function parseSefazHtml(html, fallbackKey) {
   }
 
   return {
-    success: items.length > 0 || totalAmount > 0,
+    success: items.length > 0,
     storeName,
     accessKey,
     totalAmount,
@@ -186,6 +263,182 @@ function isAllowedSefazUrl(rawUrlString) {
   }
 }
 
+/**
+ * Normalizes SEFAZ URLs to avoid cross-subdomain 302 redirects that drop session cookies
+ * and extracts the 44-digit access key from query parameters or path.
+ */
+function normalizeSefazTarget(rawUrl, fallbackAccessKey) {
+  let accessKey = (fallbackAccessKey || '').replace(/\D/g, '');
+  if (accessKey.length !== 44) accessKey = '';
+
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    if (accessKey.length === 44) {
+      const targetUrl = accessKey.startsWith('52')
+        ? `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe?chNFe=${accessKey}&nVersao=100&tpAmb=1`
+        : `https://www.fazenda.sp.gov.br/nfce/consulta?p=${accessKey}`;
+      return { targetUrl, accessKey };
+    }
+    return { targetUrl: '', accessKey: '' };
+  }
+
+  let urlStr = rawUrl.trim();
+  if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://')) {
+    urlStr = 'https://' + urlStr;
+  }
+
+  // Encode unescaped pipes in query string so URL parser and WAFs don't reject the request
+  urlStr = urlStr.replace(/\|/g, '%7C');
+
+  try {
+    const parsed = new URL(urlStr);
+
+    // Extract 44-digit key from p=, chNFe=, chaveAcesso=, chave=
+    const pParam =
+      parsed.searchParams.get('p') ||
+      parsed.searchParams.get('chNFe') ||
+      parsed.searchParams.get('chaveAcesso') ||
+      parsed.searchParams.get('chave');
+    if (pParam && !accessKey) {
+      const decoded = decodeURIComponent(pParam);
+      const firstPart = decoded.split('|')[0].replace(/\D/g, '');
+      if (firstPart.length >= 44) {
+        accessKey = firstPart.substring(0, 44);
+      }
+    }
+
+    if (!accessKey) {
+      const match = urlStr.match(/(\d{44})/);
+      if (match) accessKey = match[1];
+    }
+
+    // Rewrite www.sefaz.go.gov.br/nfce/consulta -> https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe
+    if (
+      parsed.hostname.toLowerCase() === 'www.sefaz.go.gov.br' ||
+      (parsed.hostname.toLowerCase().endsWith('.sefaz.go.gov.br') &&
+        parsed.pathname.includes('/nfce/consulta'))
+    ) {
+      parsed.protocol = 'https:';
+      parsed.hostname = 'nfeweb.sefaz.go.gov.br';
+      parsed.port = '';
+      parsed.pathname = '/nfeweb/sites/nfce/danfeNFCe';
+      urlStr = parsed.toString();
+    }
+  } catch {
+    if (!accessKey) {
+      const match = urlStr.match(/(\d{44})/);
+      if (match) accessKey = match[1];
+    }
+  }
+
+  return { targetUrl: urlStr, accessKey };
+}
+
+/**
+ * Extracts Set-Cookie headers from a fetch Response into a Map(name -> value)
+ */
+function collectCookies(res, cookieJar) {
+  if (!res || !res.headers) return;
+  let rawCookies = [];
+  if (typeof res.headers.getSetCookie === 'function') {
+    rawCookies = res.headers.getSetCookie();
+  } else if (res.headers.raw && typeof res.headers.raw === 'function') {
+    rawCookies = res.headers.raw()['set-cookie'] || [];
+  } else {
+    const single = res.headers.get('set-cookie');
+    if (single) {
+      rawCookies = single.split(/,(?=\s*[A-Za-z0-9_\-]+=)/);
+    }
+  }
+  for (const c of rawCookies) {
+    const pair = c.split(';')[0].trim();
+    const eqIdx = pair.indexOf('=');
+    if (eqIdx > 0) {
+      const k = pair.substring(0, eqIdx).trim();
+      const v = pair.substring(eqIdx + 1).trim();
+      cookieJar.set(k, v);
+    }
+  }
+}
+
+function serializeCookieJar(cookieJar) {
+  const parts = [];
+  for (const [k, v] of cookieJar.entries()) {
+    parts.push(`${k}=${v}`);
+  }
+  return parts.join('; ');
+}
+
+/**
+ * Performs an HTTP GET following redirects manually while preserving all cookies across hops
+ * and validating every redirect target against SSRF rules.
+ */
+async function fetchWithCookieJar(initialUrl, cookieJar, timeoutMs = 9000) {
+  let currentUrl = initialUrl;
+  let lastRes = null;
+
+  for (let hop = 0; hop < 5; hop++) {
+    if (!isAllowedSefazUrl(currentUrl)) {
+      throw new Error('Redirect bloqueado por política anti-SSRF.');
+    }
+    const cookieStr = serializeCookieJar(cookieJar);
+    const headers = {
+      ...BROWSER_HEADERS,
+      ...(cookieStr ? { Cookie: cookieStr } : {})
+    };
+
+    const res = await fetch(currentUrl, {
+      method: 'GET',
+      headers,
+      redirect: 'manual',
+      signal: createTimeoutSignal(timeoutMs)
+    });
+
+    collectCookies(res, cookieJar);
+    lastRes = res;
+
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location');
+      if (!location) break;
+      currentUrl = new URL(location, currentUrl).toString();
+      continue;
+    }
+    break;
+  }
+
+  return { response: lastRes, finalUrl: currentUrl };
+}
+
+/**
+ * Enriches storeName via BrasilAPI CNPJ lookup when only 44-digit key is available
+ */
+async function lookupCnpjStoreName(accessKey) {
+  if (!accessKey || accessKey.length !== 44) return null;
+  const cnpj = accessKey.substring(6, 20);
+  const endpoints = [
+    `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
+    `https://minhareceita.org/${cnpj}`
+  ];
+  for (const url of endpoints) {
+    try {
+      const cnpjRes = await fetch(url, {
+        headers: {
+          'User-Agent': BROWSER_HEADERS['User-Agent'],
+          Accept: 'application/json'
+        },
+        signal: createTimeoutSignal(3500)
+      });
+      if (cnpjRes.ok) {
+        const cData = await cnpjRes.json();
+        const rawName = cData.nome_fantasia || cData.razao_social;
+        if (rawName) {
+          return `${rawName}${cData.municipio ? ` (${cData.municipio} - ${cData.uf})` : ''}`;
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
 async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -193,7 +446,7 @@ async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-OrganoCasa-Client'
   );
 
   if (req.method === 'OPTIONS') {
@@ -213,37 +466,15 @@ async function handler(req, res) {
     const rawUrl = body.url || req.query?.url;
     const accessKeyInput = body.accessKey || req.query?.accessKey;
 
-    let targetUrl = '';
-    let accessKey = '';
-
-    if (rawUrl && typeof rawUrl === 'string') {
-      const trimmedUrl = rawUrl.trim();
-      if (!isAllowedSefazUrl(trimmedUrl)) {
-        res.status(400).json({
-          success: false,
-          error: 'Domínio não autorizado. Apenas portais oficiais da SEFAZ (.gov.br) são permitidos.'
-        });
-        return;
-      }
-      targetUrl =
-        trimmedUrl.startsWith('http://') || trimmedUrl.startsWith('https://')
-          ? trimmedUrl
-          : `https://${trimmedUrl}`;
-      const match = targetUrl.match(/\b(\d{44})\b/);
-      if (match) {
-        accessKey = match[1];
-      }
-    } else if (accessKeyInput && typeof accessKeyInput === 'string') {
-      const cleanKey = accessKeyInput.replace(/\D/g, '');
-      if (cleanKey.length === 44) {
-        accessKey = cleanKey;
-        if (accessKey.startsWith('52')) {
-          targetUrl = `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe?chNFe=${accessKey}&nVersao=100&tpAmb=1`;
-        } else {
-          targetUrl = `https://www.fazenda.sp.gov.br/nfce/consulta?p=${accessKey}`;
-        }
-      }
+    if (rawUrl && typeof rawUrl === 'string' && !isAllowedSefazUrl(rawUrl.trim())) {
+      res.status(400).json({
+        success: false,
+        error: 'Domínio não autorizado. Apenas portais oficiais da SEFAZ (.gov.br) são permitidos.'
+      });
+      return;
     }
+
+    const { targetUrl, accessKey } = normalizeSefazTarget(rawUrl, accessKeyInput);
 
     if (!targetUrl && !accessKey) {
       res.status(400).json({
@@ -253,163 +484,160 @@ async function handler(req, res) {
       return;
     }
 
+    const hasQrHash = Boolean(
+      targetUrl && (targetUrl.includes('%7C') || targetUrl.includes('|') || targetUrl.includes('cHashQRCode='))
+    );
+
     const isGoias =
       targetUrl.includes('sefaz.go.gov.br') ||
       targetUrl.includes('go.gov.br') ||
       accessKey.startsWith('52');
 
-    const headers = {
-      'User-Agent': 'curl/8.5.0',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-    };
-
     let finalHtml = '';
+    let sefazHttpStatus = 0;
+    const cookieJar = new Map();
 
-    if (isGoias && accessKey) {
-      // SEFAZ Goiás 2-step session flow:
-      // Step 1: Initial request sets session cookies (JSESSIONID, TS01..., CookieGenericoGoias)
-      const initialUrl = targetUrl || `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/danfeNFCe?chNFe=${accessKey}`;
-      const res1 = await fetch(initialUrl, {
-        headers,
-        signal: createTimeoutSignal(10000)
-      });
+    // 1. Direct fetch (2-step for SEFAZ-GO when QR Code hash is present)
+    if (isGoias && accessKey && hasQrHash) {
+      try {
+        const step1 = await fetchWithCookieJar(targetUrl, cookieJar, 9000);
+        sefazHttpStatus = step1.response ? step1.response.status : 0;
 
-      let cookieHeader = '';
-      if (typeof res1.headers.getSetCookie === 'function') {
-        cookieHeader = res1.headers
-          .getSetCookie()
-          .map((c) => c.split(';')[0])
-          .join('; ');
-      } else if (res1.headers.raw && typeof res1.headers.raw === 'function') {
-        const raw = res1.headers.raw()['set-cookie'] || [];
-        cookieHeader = raw.map((c) => c.split(';')[0]).join('; ');
-      } else {
-        const rawCookie = res1.headers.get('set-cookie');
-        if (rawCookie) {
-          cookieHeader = rawCookie
-            .split(',')
-            .map((c) => c.split(';')[0].trim())
-            .join('; ');
+        if (step1.response && step1.response.ok) {
+          const step1Text = await step1.response.text();
+          if (!isBlockedOrErrorHtml(step1Text) && /id=["']Item/i.test(step1Text)) {
+            finalHtml = unescapeHtmlEntities(step1Text);
+          }
         }
-      }
 
-      // Step 2: Fetch rendered Danfe HTML payload with session cookies
-      const renderUrl = `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/render/html/danfeNFCe?chNFe=${accessKey}`;
-      const res2 = await fetch(renderUrl, {
-        headers: {
-          ...headers,
-          Cookie: cookieHeader,
-          Referer: initialUrl
-        },
-        signal: createTimeoutSignal(10000)
-      });
-
-      if (res2.ok) {
-        const xml = await res2.text();
-        // Unescape XML entities
-        finalHtml = xml
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&apos;/g, "'")
-          .replace(/&amp;/g, '&')
-          .replace(/&atilde;/gi, 'ã')
-          .replace(/&eacute;/gi, 'é')
-          .replace(/&oacute;/gi, 'ó')
-          .replace(/&uacute;/gi, 'ú')
-          .replace(/&iacute;/gi, 'í')
-          .replace(/&ccedil;/gi, 'ç');
-      }
-    }
-
-    // Fallback or Non-GO SEFAZ direct fetch
-    if (!finalHtml && targetUrl) {
-      const response = await fetch(targetUrl, {
-        headers,
-        signal: createTimeoutSignal(12000)
-      });
-
-      if (response.ok) {
-        finalHtml = await response.text();
-      }
-    }
-
-    // If SEFAZ did not return HTML (e.g. Turnstile CAPTCHA required for raw access keys)
-    if (!finalHtml) {
-      if (accessKey && accessKey.length === 44) {
-        let storeName = 'Supermercado (NFC-e)';
-        const cnpj = accessKey.substring(6, 20);
-        try {
-          const cnpjRes = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
-            headers: { 'User-Agent': 'OrganoCasa/1.3.6 (https://organo-casa.vercel.app)' },
-            signal: createTimeoutSignal(3500)
+        if (!finalHtml && cookieJar.size > 0) {
+          const renderUrl = `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/render/html/danfeNFCe?chNFe=${accessKey}`;
+          const cookieStr = serializeCookieJar(cookieJar);
+          const res2 = await fetch(renderUrl, {
+            headers: {
+              ...BROWSER_HEADERS,
+              ...(cookieStr ? { Cookie: cookieStr } : {}),
+              Referer: step1.finalUrl || targetUrl
+            },
+            signal: createTimeoutSignal(9000)
           });
-          if (cnpjRes.ok) {
-            const cData = await cnpjRes.json();
-            const rawName = cData.nome_fantasia || cData.razao_social;
-            if (rawName) {
-              storeName = `${rawName}${cData.municipio ? ` (${cData.municipio} - ${cData.uf})` : ''}`;
+          sefazHttpStatus = res2.status || sefazHttpStatus;
+          if (res2.ok) {
+            const rawXml = await res2.text();
+            const unescaped = unescapeHtmlEntities(rawXml);
+            if (!isBlockedOrErrorHtml(unescaped)) {
+              finalHtml = unescaped;
             }
           }
-        } catch (e) {
-          console.warn('Erro ao consultar CNPJ:', e.message);
         }
+      } catch (e) {
+        console.warn('[fetch-sefaz] Erro no fluxo 2-etapas SEFAZ-GO:', e.message);
+      }
+    } else if (targetUrl && hasQrHash) {
+      try {
+        const step = await fetchWithCookieJar(targetUrl, cookieJar, 10000);
+        sefazHttpStatus = step.response ? step.response.status : 0;
+        if (step.response && step.response.ok) {
+          const text = await step.response.text();
+          if (!isBlockedOrErrorHtml(text)) {
+            finalHtml = unescapeHtmlEntities(text);
+          }
+        }
+      } catch (e) {
+        console.warn('[fetch-sefaz] Erro na consulta direta:', e.message);
+      }
+    }
 
-        const yy = accessKey.substring(2, 4);
-        const mm = accessKey.substring(4, 6);
-        const emissionDate = new Date(2000 + parseInt(yy, 10), parseInt(mm, 10) - 1, 1).toISOString();
+    // 2. Delegate to Oracle São Paulo Agent (Brazilian IP + Playwright/FlareSolverr) if direct fetch failed/blocked
+    const isOracleAgent = process.env.IS_ORACLE_AGENT === '1';
+    const oracleAgentBase =
+      process.env.ORACLE_AGENT_URL || 'https://hub.wma.ia.br/organocasa-api';
 
-        res.status(200).json({
-          success: true,
-          storeName,
-          accessKey,
-          totalAmount: 0,
-          purchaseDate: emissionDate,
-          items: [],
-          requiresManualItems: true,
-          sefazPortalUrl: accessKey.startsWith('52')
-            ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
-            : 'https://www.fazenda.sp.gov.br/nfce/consulta',
-          note: 'Nota identificada pelo CNPJ do emissor na Receita Federal. O portal da SEFAZ exige validação humana (captcha) para consulta de itens desta chave sem QR Code.'
+    if (!finalHtml && !isOracleAgent && hasQrHash && oracleAgentBase) {
+      try {
+        const agentRes = await fetch(`${oracleAgentBase}/fetch-sefaz`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-OrganoCasa-Client': 'organocasa-pwa-v1'
+          },
+          body: JSON.stringify({ url: targetUrl, accessKey }),
+          signal: createTimeoutSignal(14000)
         });
-        return;
+        if (agentRes.ok) {
+          const agentJson = await agentRes.json();
+          if (agentJson && Array.isArray(agentJson.items) && agentJson.items.length > 0) {
+            res.status(200).json(agentJson);
+            return;
+          }
+        }
+      } catch (agentErr) {
+        console.warn('[fetch-sefaz] Fallback Oracle Agent indisponível:', agentErr.message);
+      }
+    }
+
+    // 3. Parse extracted HTML if we got any valid content
+    const parsedData = finalHtml ? parseSefazHtml(finalHtml, accessKey) : null;
+
+    if (parsedData && parsedData.items.length > 0) {
+      if (
+        (!parsedData.storeName || parsedData.storeName.startsWith('Supermercado')) &&
+        accessKey &&
+        accessKey.length === 44
+      ) {
+        const enrichedName = await lookupCnpjStoreName(accessKey);
+        if (enrichedName) parsedData.storeName = enrichedName;
       }
 
-      res.status(502).json({
-        success: false,
-        error: 'Não foi possível carregar os dados da SEFAZ.'
+      res.status(200).json({
+        ...parsedData,
+        success: true,
+        requiresManualItems: false,
+        sefazPortalUrl: accessKey?.startsWith('52')
+          ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
+          : 'https://www.fazenda.sp.gov.br/nfce/consulta'
       });
       return;
     }
 
-    // Parse extracted HTML
-    const parsedData = parseSefazHtml(finalHtml, accessKey);
+    // 4. Honest fallback when SEFAZ is down (503), WAF-blocked, or raw 44-digit key requires CAPTCHA
+    if (accessKey && accessKey.length === 44) {
+      const enrichedName = await lookupCnpjStoreName(accessKey);
+      const storeName = enrichedName || 'Supermercado (NFC-e)';
+      const yy = accessKey.substring(2, 4);
+      const mm = accessKey.substring(4, 6);
+      const emissionDate = new Date(
+        2000 + parseInt(yy, 10),
+        Math.max(0, parseInt(mm, 10) - 1),
+        1
+      ).toISOString();
 
-    // If storeName is still generic, enrich with BrasilAPI
-    if ((!parsedData.storeName || parsedData.storeName.startsWith('Supermercado')) && accessKey && accessKey.length === 44) {
-      const cnpj = accessKey.substring(6, 20);
-      try {
-        const cnpjRes = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
-          headers: { 'User-Agent': 'OrganoCasa/1.3.6 (https://organo-casa.vercel.app)' },
-          signal: createTimeoutSignal(3500)
-        });
-        if (cnpjRes.ok) {
-          const cData = await cnpjRes.json();
-          const rawName = cData.nome_fantasia || cData.razao_social;
-          if (rawName) {
-            parsedData.storeName = `${rawName}${cData.municipio ? ` (${cData.municipio} - ${cData.uf})` : ''}`;
-          }
-        }
-      } catch {}
+      const reasonNote = !hasQrHash
+        ? 'Nota identificada pelo CNPJ na Receita Federal. Como os 44 dígitos sozinhos não possuem o código do QR Code, a SEFAZ exige captcha. Dica: tire uma foto do cupom abaixo para extrair todos os produtos com IA em segundos!'
+        : sefazHttpStatus === 503
+        ? 'O servidor da SEFAZ está temporariamente fora do ar (Erro 503 Manutenção). Tire uma foto do cupom abaixo para extrair os produtos imediatamente com IA!'
+        : 'A SEFAZ bloqueou a consulta automática desta nota no momento. Tire uma foto do cupom abaixo para extrair os produtos com IA ou cole a tabela da SEFAZ.';
+
+      res.status(200).json({
+        success: true,
+        storeName,
+        accessKey,
+        totalAmount: 0,
+        purchaseDate: emissionDate,
+        items: [],
+        requiresManualItems: true,
+        sefazHttpStatus,
+        sefazPortalUrl: accessKey.startsWith('52')
+          ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
+          : 'https://www.fazenda.sp.gov.br/nfce/consulta',
+        note: reasonNote
+      });
+      return;
     }
 
-    res.status(200).json({
-      ...parsedData,
-      success: true,
-      requiresManualItems: parsedData.items.length === 0,
-      sefazPortalUrl: accessKey?.startsWith('52')
-        ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
-        : 'https://www.fazenda.sp.gov.br/nfce/consulta'
+    res.status(502).json({
+      success: false,
+      error: 'Não foi possível carregar os dados da SEFAZ no momento. Tente enviar uma foto ou PDF do cupom.'
     });
   } catch (error) {
     console.error('Erro na consulta SEFAZ:', error);
@@ -424,4 +652,5 @@ module.exports = handler;
 module.exports.default = handler;
 module.exports.parseSefazHtml = parseSefazHtml;
 module.exports.isAllowedSefazUrl = isAllowedSefazUrl;
-
+module.exports.normalizeSefazTarget = normalizeSefazTarget;
+module.exports.isBlockedOrErrorHtml = isBlockedOrErrorHtml;

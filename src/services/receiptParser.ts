@@ -19,33 +19,36 @@ export interface ParsedReceiptData {
  * Intelligent categorization of raw receipt product descriptions
  */
 export function guessCategoryFromName(name: string): ProductCategory {
-  const n = name.toLowerCase();
+  const n = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 
-  if (n.match(/banana|maca|mamao|laranja|limao|uva|alface|tomate|batata|cebola|cenoura|alho|abacate|manga|melancia|ovos|ovo branco|ovo verm/)) {
+  if (n.match(/banana|maca|mamao|laranja|limao|uva|alface|tomate|batata|cebola|cenoura|alho|abacate|manga|melancia|morango|abacaxi|brocolis|couve|ovos|ovo branco|ovo verm/)) {
     return 'Hortifrúti';
   }
-  if (n.match(/carne|alcatra|patinho|acem|contra file|costela|picanha|bacon|linguica|frango|coxa|sobrecoxa|peito frango|bife|peixe|tilapia|suino/)) {
+  if (n.match(/carne|alcatra|patinho|acem|contra file|costela|picanha|bacon|linguica|frango|coxa|sobrecoxa|peito frango|coracao|bife|peixe|tilapia|salmao|suino|charque|calabresa/)) {
     return 'Carnes e Aves';
   }
-  if (n.match(/leite|queijo|mussarela|prato|parmesao|requeijao|iogurte|manteiga|margarina|presunto|mortadela|creme leite|condensado/)) {
+  if (n.match(/leite|queijo|mussarela|mucarela|prato|parmesao|requeijao|iogurte|manteiga|margarina|presunto|mortadela|peito peru|creme de leite|creme leite|condensado/)) {
     return 'Laticínios e Frios';
   }
-  if (n.match(/pao|biscoito|bolacha|torrada|bolo|panetone|doce|chocolate|bombom|bala|sobremesa|gelatina/)) {
+  if (n.match(/pao|biscoito|bolacha|torrada|bolo|panetone|doce|chocolate|bombom|bala|sobremesa|gelatina|sonho|croissant/)) {
     return 'Padaria e Sobremesas';
   }
-  if (n.match(/refrigerante|coca|guarana|suco|cerveja|heineken|amstel|agua|tonica|vinho|whisky|vodka|energetico|cha|cafe/)) {
+  if (n.match(/refrigerante|soda|coca|guarana|fanta|sprite|pepsi|suco|nectar|cerveja|heineken|amstel|brahma|skol|spaten|agua|tonica|vinho|whisky|vodka|energetico|cha|cafe/)) {
     return 'Bebidas';
   }
-  if (n.match(/congelado|hamburguer|nuggets|lasanha|pizza|sorvete|acai|polpa/)) {
+  if (n.match(/congelado|hamburguer|nuggets|lasanha|pizza|sorvete|acai|polpa|pao de queijo/)) {
     return 'Congelados';
   }
-  if (n.match(/detergente|sabao|amaciante|desinfetante|esponja|ypê|ype|limpador|vejax|agua sanitaria|cloro|papel toalha|lustra moveis/)) {
+  if (n.match(/detergente|sabao|lava roupas|amaciante|desinfetante|esponja|ype|limpador|veja|agua sanitaria|cloro|alvejante|papel toalha|lustra moveis|saco lixo/)) {
     return 'Limpeza';
   }
-  if (n.match(/shampoo|condicionador|sabonete|creme dental|colgate|desodorante|rexona|papel hig|higiene|absorvente|fio dental|fralda/)) {
+  if (n.match(/shampoo|condicionador|sabonete|creme dental|pasta dente|colgate|oral b|desodorante|rexona|dove|papel hig|higiene|absorvente|fio dental|fralda|cotonete/)) {
     return 'Higiene e Beleza';
   }
-  if (n.match(/racao|whiskas|pedigree|pet|gato|cao|cachorro|petisco/)) {
+  if (n.match(/racao|whiskas|pedigree|golden|pet|gato|cao|cachorro|petisco|areia sanitaria/)) {
     return 'Pet Shop';
   }
 
@@ -269,7 +272,7 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
   let storeName = meta.stateName ? `Supermercado (SEFAZ - ${meta.stateName})` : 'Supermercado (NFC-e)';
   const purchaseDate = meta.emissionDate || new Date().toISOString();
 
-  // 4. Consultar a API serverless da SEFAZ em background
+  // 4. Consultar a API serverless da SEFAZ (com fallback direto para o Agente Oracle São Paulo)
   const urlToFetch = meta.rawUrl || (trimmed.startsWith('http') ? trimmed : (trimmed.includes('.') ? `https://${trimmed}` : undefined));
   const hasValidTarget = Boolean(urlToFetch || (accessKey && accessKey.length === 44));
 
@@ -278,105 +281,80 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
       url: urlToFetch,
       accessKey
     };
-    console.log('[QR:SEFAZ] Consultando API serverless /api/fetch-sefaz com:', payload);
+    const endpoints = ['/api/fetch-sefaz', 'https://hub.wma.ia.br/organocasa-api/fetch-sefaz'];
 
-    try {
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+    for (const endpoint of endpoints) {
+      try {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
 
-      const sefazRes = await fetch('/api/fetch-sefaz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller?.signal
-      }).finally(() => {
-        if (timeoutId) clearTimeout(timeoutId);
-      });
-
-      console.log('[QR:SEFAZ] Resposta HTTP /api/fetch-sefaz:', sefazRes.status, sefazRes.statusText);
-
-      if (sefazRes.ok) {
-        const sefazJson = await sefazRes.json();
-        console.log('[QR:SEFAZ] Payload retornado pela SEFAZ:', {
-          success: sefazJson.success,
-          storeName: sefazJson.storeName,
-          itemCount: sefazJson.items?.length,
-          items: sefazJson.items
+        const sefazRes = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-OrganoCasa-Client': 'organocasa-pwa-v1'
+          },
+          body: JSON.stringify(payload),
+          signal: controller?.signal
+        }).finally(() => {
+          if (timeoutId) clearTimeout(timeoutId);
         });
 
-        if (sefazJson.success && Array.isArray(sefazJson.items) && sefazJson.items.length > 0) {
-          return {
-            storeName: sefazJson.storeName || storeName,
-            accessKey: sefazJson.accessKey || accessKey,
-            totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
-            purchaseDate: sefazJson.purchaseDate || purchaseDate,
-            rawType: 'qr_code',
-            items: sefazJson.items.map((it: any, idx: number) => ({
-              id: `sefaz-item-${idx + 1}-${Date.now()}`,
-              name: it.name,
-              quantity: Number(it.quantity) || 1,
-              unitPrice: Number(it.unitPrice) || 0,
-              totalPrice: Number(it.totalPrice) || Number((Number(it.quantity || 1) * Number(it.unitPrice || 0)).toFixed(2)),
-              unit: it.unit || 'un'
-            }))
-          };
-        } else if (sefazJson.success && sefazJson.storeName && sefazJson.storeName !== 'Supermercado') {
-          return {
-            storeName: sefazJson.storeName,
-            accessKey: sefazJson.accessKey || accessKey,
-            totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
-            purchaseDate: sefazJson.purchaseDate || purchaseDate,
-            rawType: 'qr_code',
-            sefazPortalUrl: sefazJson.sefazPortalUrl,
-            note: sefazJson.note || 'Nota fiscal identificada pela chave de acesso.',
-            requiresManualItems: true,
-            items: []
-          };
-        } else {
-          console.warn('[QR:SEFAZ] SEFAZ respondeu, mas sem itens parseados:', sefazJson);
+        if (sefazRes.ok) {
+          const sefazJson = await sefazRes.json();
+
+          if (sefazJson.success && Array.isArray(sefazJson.items) && sefazJson.items.length > 0) {
+            return {
+              storeName: sefazJson.storeName || storeName,
+              accessKey: sefazJson.accessKey || accessKey,
+              totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
+              purchaseDate: sefazJson.purchaseDate || purchaseDate,
+              rawType: 'qr_code',
+              items: sefazJson.items.map((it: any, idx: number) => ({
+                id: `sefaz-item-${idx + 1}-${Date.now()}`,
+                name: it.name,
+                quantity: Number(it.quantity) || 1,
+                unitPrice: Number(it.unitPrice) || 0,
+                totalPrice:
+                  Number(it.totalPrice) ||
+                  Number((Number(it.quantity || 1) * Number(it.unitPrice || 0)).toFixed(2)),
+                unit: it.unit || 'un'
+              }))
+            };
+          } else if (sefazJson.success && sefazJson.storeName && sefazJson.storeName !== 'Supermercado') {
+            return {
+              storeName: sefazJson.storeName,
+              accessKey: sefazJson.accessKey || accessKey,
+              totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
+              purchaseDate: sefazJson.purchaseDate || purchaseDate,
+              rawType: 'qr_code',
+              sefazPortalUrl:
+                sefazJson.sefazPortalUrl ||
+                (accessKey?.startsWith('52')
+                  ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
+                  : 'https://www.fazenda.sp.gov.br/nfce/consulta'),
+              note:
+                sefazJson.note ||
+                'O portal da SEFAZ está indisponível no momento. Tire uma foto do cupom abaixo para extrair todos os produtos com IA!',
+              requiresManualItems: true,
+              items: []
+            };
+          }
         }
-      } else {
-        const errText = await sefazRes.text().catch(() => '');
-        console.warn('[QR:SEFAZ] Erro na resposta da API /api/fetch-sefaz:', sefazRes.status, errText);
+      } catch (apiErr) {
+        console.warn(`[QR:SEFAZ] Exceção ao consultar ${endpoint}:`, apiErr);
       }
-    } catch (apiErr) {
-      console.warn('[QR:SEFAZ] Exceção ao consultar API serverless SEFAZ:', apiErr);
     }
   }
 
-  // 5. Fallback local com os dados estruturados caso a SEFAZ esteja inacessível
+  // 5. Fallback local sem fabricar itens fantasmas caso a SEFAZ esteja fora do ar (503)
   if (meta.cnpj) {
     storeName = `Supermercado (${meta.stateName || 'NFC-e'} - ${meta.cnpj})`;
   }
 
-  if (!meta.rawUrl || (accessKey && accessKey.length === 44 && !meta.rawUrl)) {
-    return {
-      storeName,
-      accessKey,
-      totalAmount: totalAmount > 0 ? Number(totalAmount.toFixed(2)) : 0,
-      purchaseDate,
-      rawType: 'qr_code',
-      sefazPortalUrl: accessKey?.startsWith('52')
-        ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
-        : 'https://www.fazenda.sp.gov.br/nfce/consulta',
-      note: 'Nota identificada pela chave de 44 dígitos.',
-      requiresManualItems: true,
-      items: []
-    };
-  }
-
-  const items: ReceiptItem[] = totalAmount > 0
-    ? [
-        {
-          id: `qr-item-1-${Date.now()}`,
-          name: `COMPRA ${storeName.toUpperCase()}`,
-          quantity: 1,
-          unitPrice: totalAmount,
-          totalPrice: totalAmount,
-          unit: 'un'
-        }
-      ]
-    : [];
+  const defaultPortalUrl = accessKey?.startsWith('52')
+    ? 'https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfe/consulta-completa'
+    : 'https://www.fazenda.sp.gov.br/nfce/consulta';
 
   return {
     storeName,
@@ -384,8 +362,12 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
     totalAmount: totalAmount > 0 ? Number(totalAmount.toFixed(2)) : 0,
     purchaseDate,
     rawType: 'qr_code',
-    requiresManualItems: items.length === 0,
-    items
+    sefazPortalUrl: meta.rawUrl || defaultPortalUrl,
+    note: meta.rawUrl
+      ? 'O portal da SEFAZ não respondeu aos itens desta nota no momento. Tire uma foto rápida do cupom abaixo para extrair todos os produtos com IA!'
+      : 'Nota identificada pela chave de 44 dígitos. Tire uma foto do cupom abaixo (IA) ou cole a tabela da SEFAZ.',
+    requiresManualItems: true,
+    items: []
   };
 }
 
@@ -413,7 +395,6 @@ export async function parseReceiptImage(
     return parsed;
   } catch (error) {
     console.error('Erro no OCR Tesseract:', error);
-    // Return friendly error with fallback object instead of crashing completely
     return {
       storeName: 'Cupom Fiscal',
       totalAmount: 0,
@@ -429,7 +410,7 @@ export async function parseReceiptImage(
 }
 
 /**
- * Robust multi-line heuristics parser for Brazilian thermal receipt OCR text
+ * Robust multi-line heuristics parser for Brazilian thermal receipt OCR text & SEFAZ HTML copy-paste
  */
 export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
   const lines = rawText
@@ -442,29 +423,89 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
   let accessKey: string | undefined;
   const items: ReceiptItem[] = [];
 
-  // 1. Look for 44-digit access key in text
-  const keyMatch = rawText.match(/\b(\d{44})\b/);
+  // 1. Look for 44-digit access key in text (contiguous OR 11 blocks of 4 digits)
+  const keyMatch =
+    rawText.match(/\b((?:\d{4}[\s\.\-]+){10}\d{4})\b/) ||
+    rawText.match(/\b(\d{44})\b/);
   if (keyMatch) {
-    accessKey = keyMatch[1];
+    accessKey = keyMatch[1].replace(/\D/g, '');
   }
 
   // 2. Look for store name in top lines
   for (let i = 0; i < Math.min(lines.length, 6); i++) {
     const l = lines[i];
-    if (l.match(/supermercado|mercado|hiper|atacad|comercio|loja|distribuidora|pao de acucar|carrefour|extra|assai|atacadao/i)) {
-      storeName = l.replace(/[^\w\s\.\-]/gi, '').trim();
+    if (
+      l.match(
+        /supermercado|mercado|hiper|atacad|comercio|comércio|loja|distribuidora|pao de acucar|pão de açúcar|carrefour|extra|assai|assaí|atacadao|atacadão|pro brasil/i
+      )
+    ) {
+      storeName = l.replace(/[^\p{L}\p{N}\s\.\-&]/gu, '').trim() || storeName;
       break;
     }
   }
 
+  // 2b. Multi-line SEFAZ copy-paste pass (handles browser copy where each item spans 2-5 lines)
+  const multiLineSefazRegex =
+    /([^\n\r\t]+?)\s*\(\s*C[óo]digo\s*:\s*[^)]+\)[\s\S]{0,160}?Qtde\.?\s*:\s*([0-9\.,]+)[\s\S]{0,80}?UN\s*:\s*([a-zA-Z]+)[\s\S]{0,120}?Vl\.\s*Unit\.?\s*:\s*(?:&nbsp;)?\s*([0-9\.,]+)(?:[\s\S]{0,80}?(?:Vl\.\s*Total|Valor\s*Total)\s*:?\s*([0-9\.,]+))?/gi;
+
+  let mlMatch: RegExpExecArray | null;
+  let mlIndex = 0;
+  while ((mlMatch = multiLineSefazRegex.exec(rawText)) !== null) {
+    const name = mlMatch[1].replace(/^\d+\s+/, '').trim().toUpperCase();
+    const qty = parseFloat(mlMatch[2].replace(',', '.')) || 1;
+    const unit = (mlMatch[3] || 'un').toLowerCase();
+    const unitPrice = parseFloat(mlMatch[4].replace(',', '.')) || 0;
+    const totalPrice = mlMatch[5]
+      ? parseFloat(mlMatch[5].replace(',', '.'))
+      : Number((qty * unitPrice).toFixed(2));
+
+    if (name.length >= 2 && (totalPrice > 0 || unitPrice > 0)) {
+      items.push({
+        id: `sefaz-ml-${mlIndex++}-${Date.now()}`,
+        name,
+        quantity: qty,
+        unitPrice:
+          unitPrice > 0 ? unitPrice : totalPrice > 0 ? Number((totalPrice / qty).toFixed(2)) : 0,
+        totalPrice: totalPrice > 0 ? totalPrice : Number((qty * unitPrice).toFixed(2)),
+        unit
+      });
+    }
+  }
+
+  // Extract total amount from rawText if multi-line SEFAZ items were found
+  const globalTotalMatch = rawText.match(
+    /(?:Valor a pagar(?:\s*R\$)?|VALOR TOTAL(?:\s*R\$)?)\s*:?\s*(?:R\$\s*)?(\d+[\.,]\d{2})/i
+  );
+  if (globalTotalMatch) {
+    totalAmount = parseFloat(globalTotalMatch[1].replace(',', '.')) || 0;
+  }
+
+  if (items.length > 0) {
+    if (totalAmount === 0) {
+      totalAmount = Number(items.reduce((sum, item) => sum + item.totalPrice, 0).toFixed(2));
+    }
+    return {
+      storeName,
+      accessKey,
+      totalAmount: Number(totalAmount.toFixed(2)),
+      purchaseDate: new Date().toISOString(),
+      rawType: 'ocr_image',
+      items
+    };
+  }
+
   // 3. Line-by-line parsing with two-line support
-  const ignoredWordsRegex = /^(TOTAL|SUBTOTAL|TROCO|DINHEIRO|CARTAO|CREDITO|DEBITO|VALOR A PAGAR|FORMA PAGAMENTO|PAGAMENTO|DESCONTO|CNPJ|IE|IMPOSTO|TRIBUTOS|OPERADOR|EXTRATO|CUPOM|NFC-E|DANFE)/i;
+  const ignoredWordsRegex =
+    /^(TOTAL|SUBTOTAL|TROCO|DINHEIRO|CARTAO|CARTÃO|CREDITO|CRÉDITO|DEBITO|DÉBITO|VALOR A PAGAR|FORMA PAGAMENTO|PAGAMENTO|DESCONTO|CNPJ|IE|IMPOSTO|TRIBUTOS|OPERADOR|EXTRATO|CUPOM|NFC-E|DANFE)/i;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     // Total extraction
-    if (line.match(/TOTAL\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i) || line.match(/VALOR A PAGAR\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i)) {
+    if (
+      line.match(/TOTAL\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i) ||
+      line.match(/VALOR A PAGAR\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i)
+    ) {
       const match = line.match(/(?:TOTAL|VALOR A PAGAR)\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i);
       if (match) {
         totalAmount = parseFloat(match[1].replace(',', '.'));
@@ -476,23 +517,26 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
       continue;
     }
 
-    // Pattern S: SEFAZ NFC-e Danfe format (e.g. Goiás, SP, RS text copies)
-    // e.g. "SODA ANTARC LT (Código: 261688 ) Qtde.: 2 UN: un Vl. Unit.:   3,39 Vl. Total 6,78"
-    const sefazPattern = /^(.+?)(?:\s*\([Cc][óo]digo:[^)]*\))?\s+Qtde\.?:\s*([0-9\.,]+)\s+UN:\s*([a-zA-Z]+)\s+Vl\.\s*Unit\.?:\s*(?:&nbsp;)?\s*([0-9\.,]+)\s+Vl\.\s*Total\s*([0-9\.,]+)/i;
+    // Pattern S: Single-line SEFAZ NFC-e Danfe format (with or without "(Código: ...)")
+    const sefazPattern =
+      /^(.+?)(?:\s*\([Cc][óo]digo:[^)]*\))?\s+Qtde\.?\s*:\s*([0-9\.,]+)\s+UN\s*:\s*([a-zA-Z]+)\s+Vl\.\s*Unit\.?\s*:\s*(?:&nbsp;)?\s*([0-9\.,]+)(?:\s+Vl\.\s*Total\s*:?\s*([0-9\.,]+))?/i;
     const matchSefaz = line.match(sefazPattern);
     if (matchSefaz) {
       const name = matchSefaz[1].replace(/^\d+\s+/, '').trim().toUpperCase();
       const qty = parseFloat(matchSefaz[2].replace(',', '.')) || 1;
       const unit = (matchSefaz[3] || 'un').toLowerCase();
       const unitPrice = parseFloat(matchSefaz[4].replace(',', '.')) || 0;
-      const totalPrice = parseFloat(matchSefaz[5].replace(',', '.')) || Number((qty * unitPrice).toFixed(2));
+      const totalPrice = matchSefaz[5]
+        ? parseFloat(matchSefaz[5].replace(',', '.'))
+        : Number((qty * unitPrice).toFixed(2));
 
       if (name.length >= 2 && (totalPrice > 0 || unitPrice > 0)) {
         items.push({
           id: `sefaz-${i}-${Date.now()}`,
           name,
           quantity: qty,
-          unitPrice: unitPrice > 0 ? unitPrice : (totalPrice > 0 ? Number((totalPrice / qty).toFixed(2)) : 0),
+          unitPrice:
+            unitPrice > 0 ? unitPrice : totalPrice > 0 ? Number((totalPrice / qty).toFixed(2)) : 0,
           totalPrice: totalPrice > 0 ? totalPrice : Number((qty * unitPrice).toFixed(2)),
           unit
         });
@@ -501,9 +545,11 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
     }
 
     // Pattern Tab: Table row copied from browser with tabs (\t)
-    // e.g. "1 \t ARROZ TIO JOAO \t 2 \t UN \t 29,90 \t 59,80" or "ARROZ TIO JOAO \t 2 \t UN \t 29,90 \t 59,80"
     if (line.includes('\t')) {
-      const parts = line.split('\t').map((p) => p.trim()).filter(Boolean);
+      const parts = line
+        .split('\t')
+        .map((p) => p.trim())
+        .filter(Boolean);
       if (parts.length >= 4) {
         let name = parts[0];
         let rest = parts.slice(1);
@@ -519,13 +565,20 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
           .filter((c) => !isNaN(c.num));
 
         if (numCandidates.length >= 2 && name.length >= 2 && !ignoredWordsRegex.test(name)) {
-          const qty = numCandidates[0].num > 0 && numCandidates[0].num < 1000 ? numCandidates[0].num : 1;
+          const qty =
+            numCandidates[0].num > 0 && numCandidates[0].num < 1000 ? numCandidates[0].num : 1;
           const unitCandidate = rest.find((r) => /^[a-zA-Z]{1,4}$/.test(r)) || 'un';
           const lastNum = numCandidates[numCandidates.length - 1].num;
-          const secondLastNum = numCandidates.length >= 3 ? numCandidates[numCandidates.length - 2].num : 0;
+          const secondLastNum =
+            numCandidates.length >= 3 ? numCandidates[numCandidates.length - 2].num : 0;
 
           const totalPrice = lastNum > 0 ? lastNum : 0;
-          const unitPrice = secondLastNum > 0 ? secondLastNum : (totalPrice > 0 && qty > 0 ? Number((totalPrice / qty).toFixed(2)) : 0);
+          const unitPrice =
+            secondLastNum > 0
+              ? secondLastNum
+              : totalPrice > 0 && qty > 0
+              ? Number((totalPrice / qty).toFixed(2))
+              : 0;
 
           items.push({
             id: `tab-${i}-${Date.now()}`,
@@ -540,16 +593,16 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
       }
     }
 
-    // Pattern A: Single line with quantity, unit and price
-    // e.g. "001 ARROZ TIO JOAO 5KG 1 UN X 29,90 29,90"
-    const singleLineFullRegex = /(?:(\d+)\s+)?([A-Z0-9\s\.\-\/\%]{3,35})\s+(\d+(?:[\.,]\d+)?)\s*(UN|KG|G|L|PCT|CX|LT)?\s*[xX]?\s*(\d+[\.,]\d{2})\s+(\d+[\.,]\d{2})/i;
+    // Pattern A: Single line with quantity, unit and price (supports accented Portuguese names up to 65 chars)
+    const singleLineFullRegex =
+      /(?:(\d+)\s+)?([A-ZÀ-ÖØ-öø-ÿ0-9\s\.\-\/\%\(\)\,\&]{3,65}?)\s+(\d+(?:[\.,]\d+)?)\s*(UN|KG|G|L|ML|PCT|CX|LT|DZ)?\s*[xX\*]?\s*(\d+[\.,]\d{2})\s+(\d+[\.,]\d{2})/i;
     const matchA = line.match(singleLineFullRegex);
     if (matchA) {
       const name = matchA[2].replace(/^\d+\s+/, '').trim();
       const qty = parseFloat(matchA[3].replace(',', '.')) || 1;
       const unit = (matchA[4] || 'un').toLowerCase();
       const unitPrice = parseFloat(matchA[5].replace(',', '.')) || 0;
-      const totalPrice = parseFloat(matchA[6].replace(',', '.')) || (qty * unitPrice);
+      const totalPrice = parseFloat(matchA[6].replace(',', '.')) || qty * unitPrice;
 
       if (name.length >= 2 && totalPrice > 0) {
         items.push({
@@ -565,19 +618,22 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
     }
 
     // Pattern B: Two-line pattern
-    // Line i: Product Name (e.g. "001 ARROZ TIO JOAO 5KG")
-    // Line i+1: Quantity and Price (e.g. "1 UN X 29,90 29,90" or "0,450 KG X 12,00 5,40")
+    // Line i: Product Name (e.g. "001 FEIJÃO CARIOCA 1KG")
+    // Line i+1: Quantity and Price (e.g. "1 UN X 8,50 8,50" or "0,450 KG X 12,00 5,40")
     if (i + 1 < lines.length) {
       const nextLine = lines[i + 1];
-      const nextLineQtyPriceRegex = /^(\d+(?:[\.,]\d+)?)\s*(UN|KG|G|L|PCT|CX|LT)?\s*[xX]?\s*(\d+[\.,]\d{2})(?:\s+(\d+[\.,]\d{2}))?/i;
+      const nextLineQtyPriceRegex =
+        /^(\d+(?:[\.,]\d+)?)\s*(UN|KG|G|L|ML|PCT|CX|LT|DZ)?\s*[xX\*]?\s*(\d+[\.,]\d{2})(?:\s+(?:=\s*)?(\d+[\.,]\d{2}))?/i;
       const matchB = nextLine.match(nextLineQtyPriceRegex);
 
       if (matchB && line.length >= 3 && !ignoredWordsRegex.test(line)) {
-        const cleanName = line.replace(/^\d{1,6}\s+/, '').trim();
+        const cleanName = line.replace(/^\d{1,14}\s+/, '').trim();
         const qty = parseFloat(matchB[1].replace(',', '.')) || 1;
         const unit = (matchB[2] || 'un').toLowerCase();
         const unitPrice = parseFloat(matchB[3].replace(',', '.')) || 0;
-        const totalPrice = matchB[4] ? parseFloat(matchB[4].replace(',', '.')) : Number((qty * unitPrice).toFixed(2));
+        const totalPrice = matchB[4]
+          ? parseFloat(matchB[4].replace(',', '.'))
+          : Number((qty * unitPrice).toFixed(2));
 
         if (cleanName.length >= 2 && (totalPrice > 0 || unitPrice > 0)) {
           items.push({
@@ -594,12 +650,12 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
       }
     }
 
-    // Pattern C: Simple line ending with currency price
-    // e.g. "ARROZ TIO JOAO 5KG 29,90"
-    const simpleLineRegex = /^([A-Z0-9\s\.\-\/\%]{3,35})\s+(?:R\$\s*)?(\d+[\.,]\d{2})$/i;
+    // Pattern C: Simple line ending with currency price (supports accented Portuguese names up to 65 chars)
+    const simpleLineRegex =
+      /^([A-ZÀ-ÖØ-öø-ÿ0-9\s\.\-\/\%\(\)\,\&]{3,65}?)\s+(?:R\$\s*)?(\d+[\.,]\d{2})$/i;
     const matchC = line.match(simpleLineRegex);
     if (matchC && !ignoredWordsRegex.test(line)) {
-      const name = matchC[1].replace(/^\d{1,6}\s+/, '').trim();
+      const name = matchC[1].replace(/^\d{1,14}\s+/, '').trim();
       const price = parseFloat(matchC[2].replace(',', '.'));
       if (name.length >= 3 && price > 0 && price < 9999) {
         items.push({

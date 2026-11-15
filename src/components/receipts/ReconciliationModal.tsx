@@ -357,42 +357,65 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
 
           {/* Reconciliation Sections */}
           <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-6">
-            {/* SEFAZ Portal / Chave de Acesso Alert Banner */}
-            {receiptData.sefazPortalUrl && (
+            {/* SEFAZ Portal / Chave de Acesso / AI Fallback Alert Banner */}
+            {(receiptData.sefazPortalUrl ||
+              receiptData.requiresManualItems ||
+              matchedItems.length + unplannedItems.length === 0) && (
               <div className="p-4 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl text-xs space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-1">
                     <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 text-xs">
                       <KeyRound className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                      <span>Nota Identificada via Chave de Acesso</span>
+                      <span>Carregar Produtos da Nota Fiscal</span>
                     </span>
                     <p className="text-[11px] text-indigo-700 dark:text-indigo-400 leading-relaxed">
                       {receiptData.note ||
-                        'O portal da SEFAZ exige validação de captcha para exibir os produtos. Escolha abaixo como carregar os itens desta compra:'}
+                        'O portal da SEFAZ exige validação de captcha ou está em manutenção. Tire 1 foto do cupom (ou envie o PDF) para extrair todos os produtos automaticamente com IA:'}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleCopyKeyAndOpenSefaz}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold shrink-0 inline-flex items-center gap-1.5 shadow-xs transition-colors"
-                    title="Copia a chave e abre o portal da Fazenda"
-                  >
-                    {copiedKeySuccess ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-300" />
-                        <span>Chave Copiada!</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Abrir SEFAZ</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </>
-                    )}
-                  </button>
+                  {(receiptData.sefazPortalUrl || receiptData.accessKey) && (
+                    <button
+                      type="button"
+                      onClick={handleCopyKeyAndOpenSefaz}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-bold shrink-0 inline-flex items-center gap-1.5 shadow-xs transition-colors"
+                      title="Copia a chave e abre o portal da Fazenda"
+                    >
+                      {copiedKeySuccess ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-300" />
+                          <span>Chave Copiada!</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Abrir SEFAZ</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
 
                 {/* Direct Action Buttons for Item Import */}
                 <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-indigo-100 dark:border-indigo-900/60">
+                  <button
+                    type="button"
+                    disabled={isProcessingPhoto}
+                    onClick={() => photoInputRef.current?.click()}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    {isProcessingPhoto ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                        <span>{photoStatus || 'Lendo com IA...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>📷 Foto ou PDF do Cupom (IA Automática)</span>
+                      </>
+                    )}
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setIsPasteDrawerOpen((prev) => !prev)}
@@ -400,25 +423,6 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
                   >
                     <Clipboard className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>{isPasteDrawerOpen ? 'Fechar Colagem' : '📋 Colar Tabela da SEFAZ'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={isProcessingPhoto}
-                    onClick={() => photoInputRef.current?.click()}
-                    className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-xs disabled:opacity-50"
-                  >
-                    {isProcessingPhoto ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                        <span>{photoStatus || 'Lendo Foto...'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>📷 Foto do Cupom (IA)</span>
-                      </>
-                    )}
                   </button>
                 </div>
 
@@ -817,12 +821,11 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
         </div>
       )}
 
-      {/* Hidden File Input for Paper Receipt Photo */}
+      {/* Hidden File Input for Paper Receipt Photo or PDF */}
       <input
         ref={photoInputRef}
         type="file"
-        accept="image/*"
-        capture="environment"
+        accept="image/*,application/pdf,.pdf"
         multiple
         onChange={handlePhotoUpload}
         className="hidden"

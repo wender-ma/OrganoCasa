@@ -6,40 +6,45 @@ function sefazApiPlugin() {
   return {
     name: 'sefaz-api-middleware',
     configureServer(server: any) {
-      server.middlewares.use('/api/fetch-sefaz', async (req: any, res: any) => {
-        let body = '';
-        req.on('data', (chunk: any) => {
-          body += chunk;
-        });
-        req.on('end', async () => {
-          try {
-            req.body = body ? JSON.parse(body) : {};
-          } catch {
-            req.body = {};
-          }
-          const customRes = {
-            setHeader: (k: string, v: string) => res.setHeader(k, v),
-            status: (code: number) => {
-              res.statusCode = code;
-              return customRes;
-            },
-            json: (data: any) => {
+      const mountApi = (route: string, modulePath: string) => {
+        server.middlewares.use(route, async (req: any, res: any) => {
+          let body = '';
+          req.on('data', (chunk: any) => {
+            body += chunk;
+          });
+          req.on('end', async () => {
+            try {
+              req.body = body ? JSON.parse(body) : {};
+            } catch {
+              req.body = {};
+            }
+            const customRes = {
+              setHeader: (k: string, v: string) => res.setHeader(k, v),
+              status: (code: number) => {
+                res.statusCode = code;
+                return customRes;
+              },
+              json: (data: any) => {
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify(data));
+              },
+              end: () => res.end()
+            };
+            try {
+              const mod = await import(modulePath);
+              const handler = mod.default || mod;
+              await handler(req, customRes);
+            } catch (err: any) {
+              res.statusCode = 500;
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify(data));
-            },
-            end: () => res.end()
-          };
-          try {
-            const mod = await import('./api/fetch-sefaz.js');
-            const handler = mod.default || mod;
-            await handler(req, customRes);
-          } catch (err: any) {
-            res.statusCode = 500;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ success: false, error: err.message }));
-          }
+              res.end(JSON.stringify({ success: false, error: err.message }));
+            }
+          });
         });
-      });
+      };
+
+      mountApi('/api/fetch-sefaz', './api/fetch-sefaz.js');
+      mountApi('/api/extract-receipt', './api/extract-receipt.js');
     }
   };
 }
@@ -56,7 +61,7 @@ export default defineConfig({
           vendor: ['react', 'react-dom'],
           supabase: ['@supabase/supabase-js'],
           db: ['dexie', 'dexie-react-hooks'],
-          scanner: ['jsqr']
+          scanner: ['jsqr', 'zxing-wasm/reader']
         }
       }
     }
@@ -66,7 +71,7 @@ export default defineConfig({
     sefazApiPlugin(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'pwa-192x192.svg', 'pwa-512x512.svg'],
+      includeAssets: ['favicon.svg', 'pwa-192x192.svg', 'pwa-512x512.svg', 'wasm/zxing_reader.wasm'],
       manifest: {
         name: 'OrganoCasa - Lista de Compras & Casa',
         short_name: 'OrganoCasa',
@@ -113,7 +118,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,wasm}'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallbackDenylist: [/^\/api/]
       }
     })

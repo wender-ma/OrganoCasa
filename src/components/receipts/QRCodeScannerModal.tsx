@@ -1,5 +1,17 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { X, QrCode, AlertCircle, FlipHorizontal, Loader2, ImagePlus, CheckCircle2, Bug, KeyRound } from 'lucide-react';
+import {
+  X,
+  QrCode,
+  AlertCircle,
+  FlipHorizontal,
+  Loader2,
+  ImagePlus,
+  CheckCircle2,
+  Bug,
+  KeyRound,
+  ZoomIn,
+  Flashlight
+} from 'lucide-react';
 import { useQrScanner } from '../../hooks/useQrScanner';
 import { formatAccessKey } from '../../services/nfceClassifier';
 
@@ -8,13 +20,15 @@ interface QRCodeScannerModalProps {
   onClose: () => void;
   onScanSuccess: (decodedText: string) => void;
   onSwitchToKey?: () => void;
+  onFallbackPhotoExtract?: (file: File) => void;
 }
 
 export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
   isOpen,
   onClose,
   onScanSuccess,
-  onSwitchToKey
+  onSwitchToKey,
+  onFallbackPhotoExtract
 }) => {
   const [manualInput, setManualInput] = useState('');
   const [galleryLoading, setGalleryLoading] = useState(false);
@@ -52,6 +66,12 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     start,
     stop,
     switchCamera,
+    zoomLevel,
+    hasHardwareZoom,
+    toggleZoom,
+    torchEnabled,
+    supportsTorch,
+    toggleTorch,
     scanImageFile,
     handleManualCode
   } = useQrScanner({
@@ -71,7 +91,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
     }
   }, [isOpen, start, stop]);
 
-  // Upload de foto da galeria
+  // Upload de foto da galeria (com fallback inteligente para IA se o QR estiver ilegível)
   const handleQrImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -84,12 +104,24 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
       setGalleryLoading(false);
       if (result) {
         handleManualCode(result);
+      } else if (onFallbackPhotoExtract) {
+        stop();
+        onClose();
+        onFallbackPhotoExtract(file);
       } else {
-        setGalleryError('Nenhum QR Code legível foi encontrado nesta foto. Tente aproximar da imagem.');
+        setGalleryError(
+          'Nenhum QR Code legível foi encontrado nesta foto. Use a aba "Foto / PDF" para extrair os itens com IA.'
+        );
       }
     } catch {
       setGalleryLoading(false);
-      setGalleryError('Falha ao processar arquivo da foto.');
+      if (onFallbackPhotoExtract) {
+        stop();
+        onClose();
+        onFallbackPhotoExtract(file);
+      } else {
+        setGalleryError('Falha ao processar arquivo da foto.');
+      }
     } finally {
       e.target.value = '';
     }
@@ -121,16 +153,20 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-slate-900 dark:text-white text-sm sm:text-base leading-tight">
-                Escanear QR Code da NFC-e
+                Escanear QR Code / Código
               </h3>
-              <p className="text-[11px] text-slate-400">SEFAZ Goiás, SP, MG, RJ e todos os estados</p>
+              <p className="text-[11px] text-slate-400">
+                QR Code da NFC-e ou Código de Barras da Chave
+              </p>
             </div>
           </div>
           <div className="flex items-center space-x-1">
             <button
               onClick={() => setManualDebugToggle((prev) => !prev)}
               className={`p-1.5 rounded-full transition-colors ${
-                isDebugMode ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/60' : 'text-slate-400 hover:text-slate-600'
+                isDebugMode
+                  ? 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/60'
+                  : 'text-slate-400 hover:text-slate-600'
               }`}
               title="Alternar Debug Overlay"
             >
@@ -154,7 +190,9 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
             playsInline
             muted
             autoPlay
-            className="w-full h-full object-cover"
+            className={`w-full h-full object-cover transition-transform duration-200 ${
+              zoomLevel === 2 && !hasHardwareZoom ? 'scale-[1.8]' : ''
+            }`}
           />
 
           {/* Mira Visual e Laser (exibida quando ativa) */}
@@ -190,7 +228,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           {scannedCode && (
             <div className="absolute inset-0 bg-emerald-950/85 backdrop-blur-xs flex flex-col items-center justify-center text-white space-y-2 z-20">
               <CheckCircle2 className="w-12 h-12 text-emerald-400 animate-bounce" />
-              <span className="text-xs font-bold">QR Code Identificado!</span>
+              <span className="text-xs font-bold">Código Identificado!</span>
             </div>
           )}
 
@@ -203,13 +241,31 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
                 </span>
                 <span className="text-[10px] text-amber-300 font-bold">{debugInfo.fps} FPS</span>
               </div>
-              <div>Estado: <span className="text-cyan-300 font-bold uppercase">{debugInfo.state}</span></div>
-              <div>Motor: <span className="text-amber-300 font-semibold">{debugInfo.engine}</span></div>
-              <div>HTTPS: <span className={debugInfo.isSecureContext ? 'text-emerald-400' : 'text-rose-400'}>{debugInfo.isSecureContext ? 'OK' : 'INSEGURO'}</span></div>
-              <div>ReadyState: <span className="text-yellow-300">{debugInfo.videoReadyStateLabel}</span></div>
-              <div>Dimensões: <span className="text-cyan-300">{debugInfo.videoWidth}x{debugInfo.videoHeight}</span></div>
+              <div>
+                Estado: <span className="text-cyan-300 font-bold uppercase">{debugInfo.state}</span>
+              </div>
+              <div>
+                Motor: <span className="text-amber-300 font-semibold">{debugInfo.engine}</span>
+              </div>
+              <div>
+                HTTPS:{' '}
+                <span className={debugInfo.isSecureContext ? 'text-emerald-400' : 'text-rose-400'}>
+                  {debugInfo.isSecureContext ? 'OK' : 'INSEGURO'}
+                </span>
+              </div>
+              <div>
+                ReadyState: <span className="text-yellow-300">{debugInfo.videoReadyStateLabel}</span>
+              </div>
+              <div>
+                Dimensões:{' '}
+                <span className="text-cyan-300">
+                  {debugInfo.videoWidth}x{debugInfo.videoHeight}
+                </span>
+              </div>
               {debugInfo.lastGUMError && (
-                <div className="text-rose-400 font-bold">GUM Error: {debugInfo.lastGUMError.name} - {debugInfo.lastGUMError.message}</div>
+                <div className="text-rose-400 font-bold">
+                  GUM Error: {debugInfo.lastGUMError.name} - {debugInfo.lastGUMError.message}
+                </div>
               )}
               {debugInfo.videoError && (
                 <div className="text-rose-400">Video Error Code: {debugInfo.videoError}</div>
@@ -218,7 +274,10 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
                 <span className="text-slate-400">Eventos de vídeo:</span>
                 <div className="flex flex-wrap gap-1 mt-0.5">
                   {debugInfo.videoEvents.map((ev, i) => (
-                    <span key={i} className="px-1 py-0.2 bg-slate-800 text-[8px] text-emerald-300 rounded">
+                    <span
+                      key={i}
+                      className="px-1 py-0.2 bg-slate-800 text-[8px] text-emerald-300 rounded"
+                    >
                       {ev.event}
                     </span>
                   ))}
@@ -231,8 +290,42 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
           )}
         </div>
 
-        {/* Botões de Ação */}
+        <p className="text-[11px] text-center text-slate-500 dark:text-slate-400">
+          Dica: mantenha ~20 cm de distância e ative o <strong>Zoom 2x</strong> se desfocar.
+        </p>
+
+        {/* Botões de Ação (Zoom 2x, Lanterna, Câmera, Galeria, Chave) */}
         <div className="flex items-center justify-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={toggleZoom}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors border ${
+              zoomLevel === 2
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-transparent'
+            }`}
+            title="Alternar Zoom 1x / 2x para foco macro"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+            <span>Zoom {zoomLevel}x</span>
+          </button>
+
+          {supportsTorch && (
+            <button
+              type="button"
+              onClick={toggleTorch}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors border ${
+                torchEnabled
+                  ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                  : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-transparent'
+              }`}
+              title="Ligar/Desligar Lanterna"
+            >
+              <Flashlight className="w-3.5 h-3.5" />
+              <span>Luz</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={switchCamera}
@@ -244,7 +337,7 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
 
           <label className="px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors">
             <ImagePlus className="w-3.5 h-3.5" />
-            <span>Galeria</span>
+            <span>Foto / Galeria</span>
             <input
               type="file"
               accept="image/*"
@@ -274,7 +367,10 @@ export const QRCodeScannerModal: React.FC<QRCodeScannerModalProps> = ({
         )}
 
         {/* Entrada Manual de Link ou Chave */}
-        <form onSubmit={handleManualSubmit} className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+        <form
+          onSubmit={handleManualSubmit}
+          className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-slate-800"
+        >
           <div className="flex items-center justify-between">
             <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
               Ou cole o link da NFC-e ou chave de 44 dígitos:
