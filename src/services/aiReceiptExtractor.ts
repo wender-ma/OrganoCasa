@@ -38,19 +38,42 @@ function isPdfBlob(fileOrBlob: Blob): boolean {
 }
 
 /**
- * Extracts readable text literals from a PDF binary buffer as an offline fallback
+ * Extracts readable text literals from a PDF binary buffer (including /FlateDecode streams) as an offline fallback
  */
 async function extractFallbackTextFromPdf(pdfBlob: Blob): Promise<string> {
   try {
     const buf = await pdfBlob.arrayBuffer();
     const decoder = new TextDecoder('latin1');
     const raw = decoder.decode(buf);
+    const sources: string[] = [raw];
+
+    if (typeof DecompressionStream !== 'undefined') {
+      const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+      let sm: RegExpExecArray | null;
+      while ((sm = streamRe.exec(raw)) !== null) {
+        try {
+          const bodyStr = sm[1];
+          const bytes = new Uint8Array(bodyStr.length);
+          for (let i = 0; i < bodyStr.length; i++) {
+            bytes[i] = bodyStr.charCodeAt(i) & 0xff;
+          }
+          const ds = new DecompressionStream('deflate');
+          const writer = ds.writable.getWriter();
+          writer.write(bytes).catch(() => {});
+          writer.close().catch(() => {});
+          const decompressedBuf = await new Response(ds.readable).arrayBuffer();
+          sources.push(decoder.decode(decompressedBuf));
+        } catch {}
+      }
+    }
+
     const chunks: string[] = [];
+    const combinedRaw = sources.join('\n');
 
     // Extract parenthesized PDF text strings (...)
     const regex = /\(([^()\\]{2,200})\)/g;
     let m: RegExpExecArray | null;
-    while ((m = regex.exec(raw)) !== null) {
+    while ((m = regex.exec(combinedRaw)) !== null) {
       const cleaned = m[1].replace(/[\x00-\x1F]/g, ' ').trim();
       if (cleaned.length >= 2) {
         chunks.push(cleaned);
@@ -136,6 +159,8 @@ export async function extractReceiptFromMultipleImages(
     'https://hub.wma.ia.br/organocasa-api/extract-receipt'
   ];
 
+  let serverPartialData: ParsedReceiptData | null = null;
+
   for (const endpoint of serverEndpoints) {
     try {
       const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -159,8 +184,13 @@ export async function extractReceiptFromMultipleImages(
       if (res.ok) {
         const json = await res.json();
         if (json?.success && json?.data) {
-          onProgress?.(100, 'Nota fiscal processada com sucesso pela IA!');
-          return json.data as ParsedReceiptData;
+          const data = json.data as ParsedReceiptData;
+          if (Array.isArray(data.items) && data.items.length > 0) {
+            onProgress?.(100, 'Nota fiscal processada com sucesso pela IA!');
+            return data;
+          }
+          serverPartialData = data;
+          break;
         }
       }
     } catch (srvErr) {
@@ -195,9 +225,7 @@ export async function extractReceiptFromMultipleImages(
       const modelsToTry = [
         'gemini-3.5-flash',
         'gemini-3.5-flash-lite',
-        'gemini-3.8-flash',
-        'gemini-2.5-flash',
-        'gemini-2.0-flash'
+        'gemini-3.8-flash'
       ];
 
       for (const model of modelsToTry) {
@@ -242,22 +270,24 @@ export async function extractReceiptFromMultipleImages(
                   unit: it.unit || 'un'
                 }));
 
-              onProgress?.(100, 'Cupom processado com sucesso!');
-              return {
-                storeName: parsedJson.storeName || 'Supermercado',
-                accessKey: parsedJson.accessKey
-                  ? String(parsedJson.accessKey).replace(/\D/g, '')
-                  : undefined,
-                totalAmount: Number(
-                  (
-                    parsedJson.totalAmount ||
-                    extractedItems.reduce((s: number, i: any) => s + i.totalPrice, 0)
-                  ).toFixed(2)
-                ),
-                purchaseDate: parsedJson.purchaseDate || new Date().toISOString(),
-                rawType: 'ocr_image',
-                items: extractedItems
-              };
+              if (extractedItems.length > 0) {
+                onProgress?.(100, 'Cupom processado com sucesso!');
+                return {
+                  storeName: parsedJson.storeName || 'Supermercado',
+                  accessKey: parsedJson.accessKey
+                    ? String(parsedJson.accessKey).replace(/\D/g, '')
+                    : undefined,
+                  totalAmount: Number(
+                    (
+                      parsedJson.totalAmount ||
+                      extractedItems.reduce((s: number, i: any) => s + i.totalPrice, 0)
+                    ).toFixed(2)
+                  ),
+                  purchaseDate: parsedJson.purchaseDate || new Date().toISOString(),
+                  rawType: 'ocr_image',
+                  items: extractedItems
+                };
+              }
             }
           }
         } catch {}
@@ -316,13 +346,18 @@ export async function extractReceiptFromMultipleImages(
   return {
     storeName:
       allParsed.find((p) => p.storeName && p.storeName !== 'Supermercado')?.storeName ||
+      (serverPartialData?.storeName && serverPartialData.storeName !== 'Supermercado'
+        ? serverPartialData.storeName
+        : undefined) ||
       allParsed[0]?.storeName ||
       'Supermercado',
-    accessKey: allParsed.find((p) => p.accessKey)?.accessKey,
-    totalAmount: Number(totalAmount.toFixed(2)),
-    purchaseDate: allParsed[0]?.purchaseDate || new Date().toISOString(),
+    accessKey: allParsed.find((p) => p.accessKey)?.accessKey || serverPartialData?.accessKey,
+    totalAmount: Number((totalAmount || serverPartialData?.totalAmount || 0).toFixed(2)),
+    purchaseDate:
+      allParsed[0]?.purchaseDate || serverPartialData?.purchaseDate || new Date().toISOString(),
     rawType: 'ocr_image',
     requiresManualItems: mergedItems.length === 0,
     items: mergedItems
   };
 }
+

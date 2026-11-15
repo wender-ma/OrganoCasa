@@ -96,6 +96,11 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
     setIsCameraScannerOpen(false);
   }, []);
 
+  const handleSwitchToKey = useCallback(() => {
+    setIsCameraScannerOpen(false);
+    setActiveTab('key');
+  }, []);
+
   const handleScannerSuccess = useCallback(
     (code: string) => {
       handleProcessQR(code);
@@ -860,10 +865,7 @@ export const ReceiptUploadModal: React.FC<ReceiptUploadModalProps> = ({
             isOpen={isCameraScannerOpen}
             onClose={handleCloseScanner}
             onScanSuccess={handleScannerSuccess}
-            onSwitchToKey={() => {
-              setIsCameraScannerOpen(false);
-              setActiveTab('key');
-            }}
+            onSwitchToKey={handleSwitchToKey}
             onFallbackPhotoExtract={handleFallbackPhotoFromQrModal}
           />
 

@@ -36,9 +36,9 @@ function checkRateLimit(ip) {
 }
 
 /**
- * Fallback 1: Fetch SEFAZ HTML via FlareSolverr container
+ * Fallback 1: Fetch SEFAZ HTML via FlareSolverr container (with 2-step SEFAZ-GO support)
  */
-async function fetchViaFlareSolverr(targetUrl) {
+async function fetchViaFlareSolverr(targetUrl, accessKey) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 16000);
@@ -55,9 +55,47 @@ async function fetchViaFlareSolverr(targetUrl) {
 
     if (!res.ok) return '';
     const data = await res.json();
-    const html = data?.solution?.response || '';
+    let html = sefazHandler.unescapeHtmlEntities(data?.solution?.response || '');
+
     if (html && !sefazHandler.isBlockedOrErrorHtml(html)) {
-      return html;
+      const parsedStep1 = sefazHandler.parseSefazHtml(html, accessKey);
+      if (parsedStep1.items.length > 0) {
+        return html;
+      }
+
+      // Step 2 for SEFAZ-GO using cookies solved by FlareSolverr's browser
+      const cookiesArr = Array.isArray(data?.solution?.cookies) ? data.solution.cookies : [];
+      if (
+        accessKey &&
+        (targetUrl.includes('sefaz.go.gov.br') || accessKey.startsWith('52')) &&
+        cookiesArr.length > 0
+      ) {
+        const cookieHeader = cookiesArr.map((c) => `${c.name}=${c.value}`).join('; ');
+        const renderUrl = `https://nfeweb.sefaz.go.gov.br/nfeweb/sites/nfce/render/html/danfeNFCe?chNFe=${accessKey}`;
+        const step2Timer = new AbortController();
+        const t2 = setTimeout(() => step2Timer.abort(), 9000);
+        const res2 = await fetch(renderUrl, {
+          headers: {
+            'User-Agent':
+              data?.solution?.userAgent ||
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
+            Cookie: cookieHeader,
+            Referer: targetUrl
+          },
+          signal: step2Timer.signal
+        }).finally(() => clearTimeout(t2));
+
+        if (res2.ok) {
+          const step2Html = sefazHandler.unescapeHtmlEntities(await res2.text());
+          if (
+            step2Html &&
+            !sefazHandler.isBlockedOrErrorHtml(step2Html) &&
+            sefazHandler.parseSefazHtml(step2Html, accessKey).items.length > 0
+          ) {
+            return step2Html;
+          }
+        }
+      }
     }
   } catch (e) {
     console.warn('[oracle-agent] FlareSolverr fallback error:', e.message);
@@ -71,14 +109,17 @@ async function fetchViaFlareSolverr(targetUrl) {
 function fetchViaPlaywright(targetUrl, accessKey) {
   return new Promise((resolve) => {
     const pyScript = `
-import sys, urllib.request
+import sys
 from playwright.sync_api import sync_playwright
 
 url = sys.argv[1]
 key = sys.argv[2] if len(sys.argv) > 2 else ""
 
 with sync_playwright() as pw:
-    browser = pw.chromium.launch(headless=True, channel="chromium")
+    try:
+        browser = pw.chromium.launch(headless=True)
+    except Exception:
+        browser = pw.chromium.launch(headless=True, executable_path="/snap/bin/chromium")
     context = browser.new_context(
         locale="pt-BR",
         timezone_id="America/Sao_Paulo",
@@ -112,7 +153,7 @@ with sync_playwright() as pw:
           resolve('');
           return;
         }
-        resolve(stdout);
+        resolve(sefazHandler.unescapeHtmlEntities(stdout));
       }
     );
   });
@@ -266,7 +307,7 @@ const server = http.createServer(async (req, res) => {
       const isOriginMaintenance = interceptedPayload?.sefazHttpStatus === 503;
 
       if (hasQrHash && !isOriginMaintenance && sefazHandler.isAllowedSefazUrl(targetUrl)) {
-        let browserHtml = await fetchViaFlareSolverr(targetUrl);
+        let browserHtml = await fetchViaFlareSolverr(targetUrl, accessKey);
         if (!browserHtml) {
           browserHtml = await fetchViaPlaywright(targetUrl, accessKey);
         }

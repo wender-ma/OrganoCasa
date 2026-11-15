@@ -409,6 +409,19 @@ export async function parseReceiptImage(
   }
 }
 
+function parseBrNumber(raw: string | undefined | null): number {
+  if (!raw) return 0;
+  const cleaned = String(raw).replace(/[^\d,\.]/g, '').trim();
+  if (!cleaned) return 0;
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    return parseFloat(cleaned.replace(/\./g, '').replace(',', '.')) || 0;
+  }
+  if (cleaned.includes(',')) {
+    return parseFloat(cleaned.replace(',', '.')) || 0;
+  }
+  return parseFloat(cleaned) || 0;
+}
+
 /**
  * Robust multi-line heuristics parser for Brazilian thermal receipt OCR text & SEFAZ HTML copy-paste
  */
@@ -444,19 +457,23 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
     }
   }
 
-  // 2b. Multi-line SEFAZ copy-paste pass (handles browser copy where each item spans 2-5 lines)
+  // 2b. Multi-line SEFAZ copy-paste pass (handles browser copy where each item spans 1-5 lines, with or without "(Código: ...)")
   const multiLineSefazRegex =
-    /([^\n\r\t]+?)\s*\(\s*C[óo]digo\s*:\s*[^)]+\)[\s\S]{0,160}?Qtde\.?\s*:\s*([0-9\.,]+)[\s\S]{0,80}?UN\s*:\s*([a-zA-Z]+)[\s\S]{0,120}?Vl\.\s*Unit\.?\s*:\s*(?:&nbsp;)?\s*([0-9\.,]+)(?:[\s\S]{0,80}?(?:Vl\.\s*Total|Valor\s*Total)\s*:?\s*([0-9\.,]+))?/gi;
+    /(?:^|[\n\r])\s*([^\n\r\t]*?[A-ZÀ-ÖØ-öø-ÿ]{2}[^\n\r\t]*?)(?:\s*\(\s*C[óo]digo\s*:\s*[^)]+\))?\s+Qtde\.?\s*:\s*([0-9\.,]+)[\s\S]{0,80}?UN\s*:\s*([a-zA-Z]+)[\s\S]{0,120}?Vl\.\s*Unit\.?\s*:\s*(?:&nbsp;)?\s*([0-9\.,]+)(?:[\s\S]{0,80}?(?:Vl\.\s*Total|Valor\s*Total)\s*:?\s*([0-9\.,]+))?/gi;
 
   let mlMatch: RegExpExecArray | null;
   let mlIndex = 0;
   while ((mlMatch = multiLineSefazRegex.exec(rawText)) !== null) {
-    const name = mlMatch[1].replace(/^\d+\s+/, '').trim().toUpperCase();
-    const qty = parseFloat(mlMatch[2].replace(',', '.')) || 1;
+    const name = mlMatch[1]
+      .replace(/\s*\(\s*C[óo]digo\s*:[^)]+\)\s*$/i, '')
+      .replace(/^\d+\s+/, '')
+      .trim()
+      .toUpperCase();
+    const qty = parseBrNumber(mlMatch[2]) || 1;
     const unit = (mlMatch[3] || 'un').toLowerCase();
-    const unitPrice = parseFloat(mlMatch[4].replace(',', '.')) || 0;
+    const unitPrice = parseBrNumber(mlMatch[4]) || 0;
     const totalPrice = mlMatch[5]
-      ? parseFloat(mlMatch[5].replace(',', '.'))
+      ? parseBrNumber(mlMatch[5])
       : Number((qty * unitPrice).toFixed(2));
 
     if (name.length >= 2 && (totalPrice > 0 || unitPrice > 0)) {
@@ -474,10 +491,10 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
 
   // Extract total amount from rawText if multi-line SEFAZ items were found
   const globalTotalMatch = rawText.match(
-    /(?:Valor a pagar(?:\s*R\$)?|VALOR TOTAL(?:\s*R\$)?)\s*:?\s*(?:R\$\s*)?(\d+[\.,]\d{2})/i
+    /(?:Valor a pagar(?:\s*R\$)?|VALOR TOTAL(?:\s*R\$)?)\s*:?\s*(?:R\$\s*)?([\d\.]+,\d{2}|\d+\.\d{2})/i
   );
   if (globalTotalMatch) {
-    totalAmount = parseFloat(globalTotalMatch[1].replace(',', '.')) || 0;
+    totalAmount = parseBrNumber(globalTotalMatch[1]);
   }
 
   if (items.length > 0) {
@@ -503,12 +520,12 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
 
     // Total extraction
     if (
-      line.match(/TOTAL\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i) ||
-      line.match(/VALOR A PAGAR\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i)
+      line.match(/TOTAL\s*(?:R\$)?\s*([\d\.]+,\d{2}|\d+\.\d{2})/i) ||
+      line.match(/VALOR A PAGAR\s*(?:R\$)?\s*([\d\.]+,\d{2}|\d+\.\d{2})/i)
     ) {
-      const match = line.match(/(?:TOTAL|VALOR A PAGAR)\s*(?:R\$)?\s*(\d+[\.,]\d{2})/i);
+      const match = line.match(/(?:TOTAL|VALOR A PAGAR)\s*(?:R\$)?\s*([\d\.]+,\d{2}|\d+\.\d{2})/i);
       if (match) {
-        totalAmount = parseFloat(match[1].replace(',', '.'));
+        totalAmount = parseBrNumber(match[1]);
       }
       continue;
     }
@@ -523,11 +540,11 @@ export function parseReceiptTextHeuristics(rawText: string): ParsedReceiptData {
     const matchSefaz = line.match(sefazPattern);
     if (matchSefaz) {
       const name = matchSefaz[1].replace(/^\d+\s+/, '').trim().toUpperCase();
-      const qty = parseFloat(matchSefaz[2].replace(',', '.')) || 1;
+      const qty = parseBrNumber(matchSefaz[2]) || 1;
       const unit = (matchSefaz[3] || 'un').toLowerCase();
-      const unitPrice = parseFloat(matchSefaz[4].replace(',', '.')) || 0;
+      const unitPrice = parseBrNumber(matchSefaz[4]) || 0;
       const totalPrice = matchSefaz[5]
-        ? parseFloat(matchSefaz[5].replace(',', '.'))
+        ? parseBrNumber(matchSefaz[5])
         : Number((qty * unitPrice).toFixed(2));
 
       if (name.length >= 2 && (totalPrice > 0 || unitPrice > 0)) {

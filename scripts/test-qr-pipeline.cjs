@@ -155,7 +155,41 @@ async function runPipelineTest() {
     process.exit(1);
   }
 
+  // Teste 6: Parse de HTML SEFAZ sem <strong> dentro de Rqtd/RUN e com separador de milhar (1.250,00)
+  const sampleHtmlNoStrong = `
+    <div id="u20" class="txtTopo">ATACADÃO S.A.</div>
+    <table id="tabResult">
+      <tr id="Item + 1">
+        <td>
+          <span class="txtTit">CESTA BÁSICA ATACADO</span>
+          <span class="Rqtd">10</span>
+          <span class="RUN">CX</span>
+          <span class="RvlUnit"><strong>Vl. Unit.:</strong> 125,00</span>
+        </td>
+        <td><span class="valor">1.250,00</span></td>
+      </tr>
+    </table>
+    <label>Valor a pagar R$:</label><span class="totalNumb txtMax">1.250,00</span>
+  `;
+  const parsed6 = parseSefazHtml(
+    sampleHtmlNoStrong,
+    '52260945543915027896650790000946101124108858'
+  );
+  if (
+    parsed6.success &&
+    parsed6.totalAmount === 1250 &&
+    parsed6.items[0].quantity === 10 &&
+    parsed6.items[0].unit === 'cx' &&
+    parsed6.items[0].totalPrice === 1250
+  ) {
+    console.log('✓ Teste 6 (Parse Rqtd sem <strong> + separador de milhar 1.250,00): SUCESSO!');
+  } else {
+    console.error('✗ Teste 6 FALHOU:', parsed6);
+    process.exit(1);
+  }
+
   console.log('=== TODOS OS TESTES DO PIPELINE PASSARAM! ===');
 }
 
 runPipelineTest();
+

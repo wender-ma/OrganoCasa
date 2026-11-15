@@ -60,6 +60,51 @@ function ensureZXingReady(): Promise<boolean> {
 }
 
 /**
+ * Prioritizes QR Codes and 44-digit NF-e/NFC-e 1D barcodes (Code-128 / ITF)
+ * while rejecting random non-fiscal short 1D barcodes or thermal stripe false positives.
+ */
+export function pickBestBarcodeResult(
+  results: Array<{ format?: string; text?: string; rawValue?: string }> | null | undefined
+): string | null {
+  if (!Array.isArray(results) || results.length === 0) return null;
+
+  let qrCandidate: string | null = null;
+  let key44Candidate: string | null = null;
+  let eanCandidate: string | null = null;
+
+  for (const r of results) {
+    const raw = (r?.text ?? r?.rawValue ?? '').trim();
+    if (!raw) continue;
+    const fmt = String(r?.format || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+    const digits = raw.replace(/\D/g, '');
+
+    if (fmt === 'qrcode') {
+      if (!qrCandidate) qrCandidate = raw;
+      continue;
+    }
+
+    if (fmt === 'code128' || fmt === 'itf') {
+      if (digits.length === 44) {
+        if (!key44Candidate) key44Candidate = digits;
+      } else if (/^https?:\/\/|sefaz|fazenda|nfce/i.test(raw)) {
+        if (!qrCandidate) qrCandidate = raw;
+      }
+      continue;
+    }
+
+    if (digits.length === 44 && !key44Candidate) {
+      key44Candidate = digits;
+    } else if (/^\d{8}$|^\d{12,14}$/.test(raw) && !eanCandidate) {
+      eanCandidate = raw;
+    }
+  }
+
+  return qrCandidate || key44Candidate || eanCandidate;
+}
+
+/**
  * Detecta se o dispositivo é iOS (iPhone, iPad, iPod)
  */
 export function isIOS(): boolean {
@@ -235,6 +280,9 @@ export function useQrScanner({
   const zoomLevelRef = useRef<1 | 2>(zoomLevel);
   zoomLevelRef.current = zoomLevel;
 
+  const torchEnabledRef = useRef<boolean>(torchEnabled);
+  torchEnabledRef.current = torchEnabled;
+
   // Invariante A, C, D e G: Ciclo de vida estrito e guards
   const activeRequestIdRef = useRef<number>(0);
   const isStartingRef = useRef<boolean>(false);
@@ -401,6 +449,7 @@ export function useQrScanner({
     }
 
     setTorchEnabled(false);
+    torchEnabledRef.current = false;
     setSupportsTorch(false);
     setZoomLevel(1);
     zoomLevelRef.current = 1;
@@ -469,8 +518,9 @@ export function useQrScanner({
       if (barcodeDetectorRef.current) {
         try {
           const barcodes = await barcodeDetectorRef.current.detect(video);
-          if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-            handleDetected(barcodes[0].rawValue);
+          const bestNative = pickBestBarcodeResult(barcodes);
+          if (bestNative) {
+            handleDetected(bestNative);
             return;
           }
         } catch {}
@@ -503,10 +553,11 @@ export function useQrScanner({
             const zxingResults = await readBarcodesFromImageData(cropImgData, {
               tryHarder: true,
               formats: ['QRCode', 'Code128', 'EAN-13', 'EAN-8', 'ITF'],
-              maxNumberOfSymbols: 1
+              maxNumberOfSymbols: 4
             });
-            if (zxingResults && zxingResults.length > 0 && zxingResults[0].text) {
-              handleDetected(zxingResults[0].text);
+            const bestCrop = pickBestBarcodeResult(zxingResults);
+            if (bestCrop) {
+              handleDetected(bestCrop);
               return;
             }
           } catch {}
@@ -542,11 +593,12 @@ export function useQrScanner({
             try {
               const zxingWide = await readBarcodesFromImageData(wideImgData, {
                 tryHarder: true,
-                formats: ['QRCode', 'Code128', 'EAN-13'],
-                maxNumberOfSymbols: 1
+                formats: ['QRCode', 'Code128', 'EAN-13', 'EAN-8', 'ITF'],
+                maxNumberOfSymbols: 4
               });
-              if (zxingWide && zxingWide.length > 0 && zxingWide[0].text) {
-                handleDetected(zxingWide[0].text);
+              const bestWide = pickBestBarcodeResult(zxingWide);
+              if (bestWide) {
+                handleDetected(bestWide);
                 return;
               }
             } catch {}
@@ -801,18 +853,19 @@ export function useQrScanner({
     }
   }, []);
 
-  // 6c. Alternar Lanterna (Torch)
+  // 6c. Alternar Lanterna (Torch) (Invariante F: deps [])
   const toggleTorch = useCallback(async () => {
     const track = activeStreamRef.current?.getVideoTracks()?.[0];
     if (!track) return;
-    const nextTorch = !torchEnabled;
+    const nextTorch = !torchEnabledRef.current;
     try {
       await track.applyConstraints({ advanced: [{ torch: nextTorch } as any] });
+      torchEnabledRef.current = nextTorch;
       setTorchEnabled(nextTorch);
     } catch {
       setSupportsTorch(false);
     }
-  }, [torchEnabled]);
+  }, []);
 
   // 7. Decodificação estática em alta resolução a partir de arquivo de foto (galeria) (Invariante F: deps [])
   const scanImageFile = useCallback(async (file: File): Promise<string | null> => {
@@ -870,8 +923,9 @@ export function useQrScanner({
             if (barcodeDetectorRef.current) {
               try {
                 const barcodes = await barcodeDetectorRef.current.detect(canvas);
-                if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-                  resolve(barcodes[0].rawValue);
+                const bestNative = pickBestBarcodeResult(barcodes);
+                if (bestNative) {
+                  resolve(bestNative);
                   return;
                 }
               } catch {}
@@ -883,11 +937,12 @@ export function useQrScanner({
               try {
                 const zxingRes = await readBarcodesFromImageData(imgData, {
                   tryHarder: true,
-                  formats: ['QRCode', 'Code128', 'EAN-13', 'EAN-8'],
-                  maxNumberOfSymbols: 1
+                  formats: ['QRCode', 'Code128', 'EAN-13', 'EAN-8', 'ITF'],
+                  maxNumberOfSymbols: 4
                 });
-                if (zxingRes && zxingRes.length > 0 && zxingRes[0].text) {
-                  resolve(zxingRes[0].text);
+                const bestZxing = pickBestBarcodeResult(zxingRes);
+                if (bestZxing) {
+                  resolve(bestZxing);
                   return;
                 }
               } catch {}

@@ -1,4 +1,5 @@
 const fs = require('fs');
+const zlib = require('zlib');
 
 function createTimeoutSignal(ms) {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
@@ -9,6 +10,41 @@ function createTimeoutSignal(ms) {
   const controller = new AbortController();
   setTimeout(() => controller.abort(), ms);
   return controller.signal;
+}
+
+/**
+ * Extracts text & 44-digit access keys from uncompressed and /FlateDecode compressed PDF streams
+ */
+function extractPdfStreamMetadata(base64Data) {
+  try {
+    const buf = Buffer.from(base64Data, 'base64');
+    const rawLatin1 = buf.toString('latin1');
+    const textChunks = [rawLatin1];
+
+    const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+    let m;
+    while ((m = streamRe.exec(rawLatin1)) !== null) {
+      const streamBytes = Buffer.from(m[1], 'latin1');
+      try {
+        const inflated = zlib.inflateSync(streamBytes);
+        textChunks.push(inflated.toString('latin1'));
+      } catch {
+        try {
+          const inflatedRaw = zlib.inflateRawSync(streamBytes);
+          textChunks.push(inflatedRaw.toString('latin1'));
+        } catch {}
+      }
+    }
+
+    const combined = textChunks.join('\n');
+    const keyMatch =
+      combined.match(/\b((?:\d{4}[\s\.\-]+){10}\d{4})\b/) ||
+      combined.match(/\b(\d{44})\b/);
+    const accessKey = keyMatch ? keyMatch[1].replace(/\D/g, '') : undefined;
+    return { accessKey: accessKey && accessKey.length === 44 ? accessKey : undefined };
+  } catch {
+    return {};
+  }
 }
 
 const GEMINI_KEY_PATHS = [
@@ -41,9 +77,7 @@ function resolveServerGeminiKey(explicitKey) {
 const GEMINI_MODELS = [
   'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.8-flash',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash'
+  'gemini-3.8-flash'
 ];
 
 function buildExtractionPrompt(fileCount, hasPdf) {
@@ -139,8 +173,12 @@ async function extractWithGeminiServer(files, apiKey) {
   const hasPdf = files.some((f) => f.mimeType === 'application/pdf');
   const prompt = buildExtractionPrompt(files.length, hasPdf);
 
+  let pdfFallbackKey;
   const parts = [{ text: prompt }];
   for (const file of files) {
+    if (file.mimeType === 'application/pdf' && file.data && !pdfFallbackKey) {
+      pdfFallbackKey = extractPdfStreamMetadata(file.data).accessKey;
+    }
     parts.push({
       inline_data: {
         mime_type: file.mimeType || 'image/jpeg',
@@ -149,7 +187,7 @@ async function extractWithGeminiServer(files, apiKey) {
     });
   }
 
-  let lastError = null;
+  let primaryError = null;
   for (const model of GEMINI_MODELS) {
     try {
       const response = await fetch(
@@ -170,14 +208,16 @@ async function extractWithGeminiServer(files, apiKey) {
 
       if (!response.ok) {
         const errText = await response.text().catch(() => '');
-        lastError = new Error(`Gemini (${model}) HTTP ${response.status}: ${errText.slice(0, 200)}`);
+        const err = new Error(`Gemini (${model}) HTTP ${response.status}: ${errText.slice(0, 200)}`);
+        if (!primaryError) primaryError = err;
         continue;
       }
 
       const data = await response.json();
       let textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!textResponse) {
-        lastError = new Error(`Gemini (${model}) retornou resposta vazia.`);
+        const err = new Error(`Gemini (${model}) retornou resposta vazia.`);
+        if (!primaryError) primaryError = err;
         continue;
       }
 
@@ -191,17 +231,20 @@ async function extractWithGeminiServer(files, apiKey) {
 
       const parsedJson = JSON.parse(cleanJson);
       const sanitized = sanitizeExtractedData(parsedJson);
+      if (!sanitized.accessKey && pdfFallbackKey) {
+        sanitized.accessKey = pdfFallbackKey;
+      }
       return {
         success: true,
         model,
         data: sanitized
       };
     } catch (err) {
-      lastError = err;
+      if (!primaryError) primaryError = err;
     }
   }
 
-  throw lastError || new Error('Falha ao processar documento na IA Multimodal.');
+  throw primaryError || new Error('Falha ao processar documento na IA Multimodal.');
 }
 
 async function handler(req, res) {

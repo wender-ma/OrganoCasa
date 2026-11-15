@@ -68,6 +68,33 @@ function unescapeHtmlEntities(raw) {
 }
 
 /**
+ * Parses a Brazilian formatted number (e.g. "1.250,50" -> 1250.5, "8,50" -> 8.5, "8.50" -> 8.5)
+ */
+function parseBrNumber(raw) {
+  if (raw === null || raw === undefined) return 0;
+  const cleaned = String(raw).replace(/[^\d,\.]/g, '').trim();
+  if (!cleaned) return 0;
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    // Dot is thousands separator, comma is decimal separator (e.g. 1.250,50)
+    return parseFloat(cleaned.replace(/\./g, '').replace(',', '.')) || 0;
+  }
+  if (cleaned.includes(',')) {
+    return parseFloat(cleaned.replace(',', '.')) || 0;
+  }
+  return parseFloat(cleaned) || 0;
+}
+
+/**
+ * Extracts text content inside a specific <span class="...">...</span> without bleeding across spans
+ */
+function extractSpanText(rowHtml, classPattern) {
+  const re = new RegExp(`<span[^>]*class=["'][^"']*(?:${classPattern})[^"']*["'][^>]*>([\\s\\S]*?)<\\/span>`, 'i');
+  const m = rowHtml.match(re);
+  if (!m || !m[1]) return '';
+  return m[1].replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').trim();
+}
+
+/**
  * Robust HTML parser for SEFAZ Danfe NFC-e portals (Goiás, SP, RS, MG, etc.)
  */
 function parseSefazHtml(html, fallbackKey) {
@@ -142,8 +169,7 @@ function parseSefazHtml(html, fallbackKey) {
     html.match(/VALOR TOTAL(?:\s*R\$)?\s*[:]?\s*<[^>]*>([^<]+)</i);
 
   if (totalMatch && totalMatch[1]) {
-    const cleanTotal = totalMatch[1].replace(/[^\d,\.]/g, '').replace(',', '.');
-    totalAmount = parseFloat(cleanTotal) || 0;
+    totalAmount = parseBrNumber(totalMatch[1]);
   }
 
   // 5. Extract Products table (Standard Brazilian Danfe NFC-e / SEFAZ table structure)
@@ -157,20 +183,17 @@ function parseSefazHtml(html, fallbackKey) {
       rowHtml.match(/class=["']txtTit[^"']*["'][^>]*>([^<]+)</i) ||
       rowHtml.match(/<span[^>]*class=["']xProd[^"']*["'][^>]*>([^<]+)</i);
 
-    const qtyM =
-      rowHtml.match(/class=["']Rqu?an?t?d?[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?\s*([0-9\.,]+)/i) ||
-      rowHtml.match(/Qtde\.?\s*:(?:\s*<\/strong>)?\s*([0-9\.,]+)/i) ||
-      rowHtml.match(/class=["']Rqu?an?t?d?[^"']*["'][^>]*>([^<]+)</i);
+    const qtySpan = extractSpanText(rowHtml, 'Rqtd|Rquantd?');
+    const qtyFallback = rowHtml.match(/Qtde\.?\s*:(?:\s*<\/strong>)?\s*([0-9\.,]+)/i);
+    const qtyRaw = qtySpan || (qtyFallback ? qtyFallback[1] : '1');
 
-    const unitM =
-      rowHtml.match(/class=["']RUN[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?\s*([a-zA-Z]+)/i) ||
-      rowHtml.match(/UN\s*:\s*(?:\s*<\/strong>)?\s*([a-zA-Z]+)/i) ||
-      rowHtml.match(/class=["']RUN[^"']*["'][^>]*>([^<]+)</i);
+    const unitSpan = extractSpanText(rowHtml, 'RUN');
+    const unitFallback = rowHtml.match(/UN\s*:\s*(?:\s*<\/strong>)?\s*([a-zA-Z]+)/i);
+    const unitRaw = unitSpan.replace(/^UN\s*:?\s*/i, '').trim() || (unitFallback ? unitFallback[1] : 'un');
 
-    const unitPriceM =
-      rowHtml.match(/class=["']RvlUnit[^"']*["'][^>]*>(?:[\s\S]*?<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i) ||
-      rowHtml.match(/Vl\.\s*Unit\.?\s*:(?:\s*<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i) ||
-      rowHtml.match(/class=["']RvlUnit[^"']*["'][^>]*>([^<]+)</i);
+    const unitPriceSpan = extractSpanText(rowHtml, 'RvlUnit');
+    const unitPriceFallback = rowHtml.match(/Vl\.\s*Unit\.?\s*:(?:\s*<\/strong>)?(?:\s*&nbsp;)?\s*([0-9\.,]+)/i);
+    const unitPriceRaw = unitPriceSpan.replace(/^Vl\.?\s*Unit\.?\s*:?\s*/i, '').trim() || (unitPriceFallback ? unitPriceFallback[1] : '0');
 
     const totalM =
       rowHtml.match(/class=["']valor[^"']*["'][^>]*>([^<]+)</i) ||
@@ -178,14 +201,10 @@ function parseSefazHtml(html, fallbackKey) {
 
     if (nameM && nameM[1]) {
       const name = nameM[1].trim().toUpperCase().replace(/&amp;/g, '&');
-      const qtyStr = (qtyM ? qtyM[1] : '1').replace(/[^\d,\.]/g, '').replace(',', '.');
-      const unitStr = (unitM ? unitM[1] : 'un').replace(/[^a-zA-Z]/g, '').toLowerCase() || 'un';
-      const unitPriceStr = (unitPriceM ? unitPriceM[1] : '0').replace(/[^\d,\.]/g, '').replace(',', '.');
-      const totalStr = (totalM ? totalM[1] : '0').replace(/[^\d,\.]/g, '').replace(',', '.');
-
-      const quantity = parseFloat(qtyStr) || 1;
-      let unitPrice = parseFloat(unitPriceStr) || 0;
-      const itemTotal = parseFloat(totalStr) || Number((quantity * unitPrice).toFixed(2));
+      const quantity = parseBrNumber(qtyRaw) || 1;
+      const unitStr = unitRaw.replace(/[^a-zA-Z]/g, '').toLowerCase() || 'un';
+      let unitPrice = parseBrNumber(unitPriceRaw) || 0;
+      const itemTotal = (totalM ? parseBrNumber(totalM[1]) : 0) || Number((quantity * unitPrice).toFixed(2));
 
       if (unitPrice === 0 && quantity > 0 && itemTotal > 0) {
         unitPrice = Number((itemTotal / quantity).toFixed(2));
@@ -654,3 +673,6 @@ module.exports.parseSefazHtml = parseSefazHtml;
 module.exports.isAllowedSefazUrl = isAllowedSefazUrl;
 module.exports.normalizeSefazTarget = normalizeSefazTarget;
 module.exports.isBlockedOrErrorHtml = isBlockedOrErrorHtml;
+module.exports.unescapeHtmlEntities = unescapeHtmlEntities;
+module.exports.parseBrNumber = parseBrNumber;
+
