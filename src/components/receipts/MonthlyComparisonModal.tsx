@@ -186,7 +186,8 @@ export const MonthlyComparisonModal: React.FC<MonthlyComparisonModalProps> = ({
                 Comparativo Mensal Dedicado
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {receipts.length} {receipts.length === 1 ? 'nota' : 'notas'} em {report.activeMonthsCount}{' '}
+                {report.countedReceiptsCount}{' '}
+                {report.countedReceiptsCount === 1 ? 'nota' : 'notas'} em {report.activeMonthsCount}{' '}
                 {report.activeMonthsCount === 1 ? 'mês' : 'meses'} • Média de{' '}
                 <strong className="text-slate-700 dark:text-slate-200">
                   {formatBRL(report.overallAverageMonthly)}/mês
@@ -207,6 +208,17 @@ export const MonthlyComparisonModal: React.FC<MonthlyComparisonModalProps> = ({
 
         {/* Scrollable Content */}
         <div className="overflow-y-auto p-4 sm:p-5 space-y-5 flex-1">
+          {report.excludedReceiptsCount > 0 && (
+            <div className="px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 text-[11px] text-amber-800 dark:text-amber-300 flex items-center justify-between gap-2">
+              <span>
+                <strong>{report.excludedReceiptsCount}</strong>{' '}
+                {report.excludedReceiptsCount === 1
+                  ? 'nota marcada somente para cadastro de preços'
+                  : 'notas marcadas somente para cadastro de preços'}{' '}
+                ({formatBRL(report.excludedTotalSpent)}) fora dos custos mensais.
+              </span>
+            </div>
+          )}
           {/* Direct Comparison Selectors */}
           <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-2xl border border-slate-200/70 dark:border-slate-800">
             <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">

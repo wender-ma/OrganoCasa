@@ -264,8 +264,9 @@ export async function resolveCurrentItemAuthor(): Promise<ItemAuthorInfo> {
 }
 
 let shoppingItemAuthorColumnsSupported: boolean | null = null;
+let receiptExcludeStatsSupported: boolean | null = null;
 
-function isMissingAuthorColumnError(error: any): boolean {
+function isMissingColumnError(error: any, columnNeedle: string): boolean {
   if (!error) return false;
   const code = String(error.code || '');
   const msg = String(error.message || '').toLowerCase();
@@ -273,9 +274,79 @@ function isMissingAuthorColumnError(error: any): boolean {
   return (
     code === '42703' ||
     code === 'PGRST204' ||
-    msg.includes('added_by_') ||
-    details.includes('added_by_')
+    msg.includes(columnNeedle) ||
+    details.includes(columnNeedle)
   );
+}
+
+function isMissingAuthorColumnError(error: any): boolean {
+  return isMissingColumnError(error, 'added_by_');
+}
+
+function mapRemoteReceipt(remoteRc: any, existingLocal?: Receipt): Receipt {
+  const hasRemoteFlag =
+    remoteRc.exclude_from_stats !== undefined && remoteRc.exclude_from_stats !== null;
+  return {
+    id: remoteRc.id,
+    listId: remoteRc.list_id || undefined,
+    storeName: remoteRc.store_name,
+    accessKey: remoteRc.access_key || undefined,
+    totalAmount: Number(remoteRc.total_amount || 0),
+    purchaseDate: remoteRc.purchase_date,
+    rawType: remoteRc.raw_type || 'qr_code',
+    excludeFromStats: hasRemoteFlag
+      ? Boolean(remoteRc.exclude_from_stats)
+      : existingLocal?.excludeFromStats,
+    items: remoteRc.items || [],
+    createdAt: remoteRc.created_at
+  };
+}
+
+function buildReceiptPayload(
+  receipt: Receipt,
+  householdId: string,
+  includeExcludeColumn: boolean
+): Record<string, any> {
+  const payload: Record<string, any> = {
+    id: receipt.id,
+    household_id: householdId,
+    list_id: receipt.listId || null,
+    store_name: receipt.storeName,
+    access_key: receipt.accessKey || null,
+    total_amount: receipt.totalAmount || 0,
+    purchase_date: receipt.purchaseDate,
+    raw_type: receipt.rawType || 'qr_code',
+    items: receipt.items || [],
+    created_at: receipt.createdAt
+  };
+
+  if (includeExcludeColumn) {
+    payload.exclude_from_stats = Boolean(receipt.excludeFromStats);
+  }
+
+  return payload;
+}
+
+async function upsertReceiptsWithFallback(
+  client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  householdId: string,
+  receipts: Receipt[]
+) {
+  const tryWithExclude = receiptExcludeStatsSupported !== false;
+  const payload = receipts.map((rc) => buildReceiptPayload(rc, householdId, tryWithExclude));
+  const result = await client.from('receipts').upsert(payload, { onConflict: 'id' });
+
+  if (result.error && tryWithExclude && isMissingColumnError(result.error, 'exclude_from_stats')) {
+    receiptExcludeStatsSupported = false;
+    const fallbackPayload = receipts.map((rc) => buildReceiptPayload(rc, householdId, false));
+    return client.from('receipts').upsert(fallbackPayload, { onConflict: 'id' });
+  }
+
+  if (!result.error && tryWithExclude) {
+    receiptExcludeStatsSupported = true;
+  }
+
+  return result;
 }
 
 function mapRemoteShoppingListItem(remoteItem: any, existingLocal?: ShoppingListItem): ShoppingListItem {
@@ -1127,17 +1198,7 @@ export async function pullFreshHouseholdData(householdId: string): Promise<void>
         if (remoteReceipts?.length) {
           const receipts: Receipt[] = remoteReceipts.map((rc: any) => {
             freshSyncedIds.add(rc.id);
-            return {
-              id: rc.id,
-              listId: rc.list_id || undefined,
-              storeName: rc.store_name,
-              accessKey: rc.access_key || undefined,
-              totalAmount: Number(rc.total_amount || 0),
-              purchaseDate: rc.purchase_date,
-              rawType: rc.raw_type || 'qr_code',
-              items: rc.items || [],
-              createdAt: rc.created_at
-            };
+            return mapRemoteReceipt(rc);
           });
           await db.receipts.bulkPut(receipts);
         }
@@ -1404,17 +1465,7 @@ export async function triggerFullSync(): Promise<boolean> {
       syncedIds.add(remoteRc.id);
       const local = localReceipts.find((rc) => rc.id === remoteRc.id);
       if (!local || !isRecentLocalAction(remoteRc.id)) {
-        await db.receipts.put({
-          id: remoteRc.id,
-          listId: remoteRc.list_id || undefined,
-          storeName: remoteRc.store_name,
-          accessKey: remoteRc.access_key || undefined,
-          totalAmount: Number(remoteRc.total_amount || 0),
-          purchaseDate: remoteRc.purchase_date,
-          rawType: remoteRc.raw_type || 'qr_code',
-          items: remoteRc.items || [],
-          createdAt: remoteRc.created_at
-        });
+        await db.receipts.put(mapRemoteReceipt(remoteRc, local));
       }
     }
 
@@ -1640,19 +1691,7 @@ export async function triggerFullSync(): Promise<boolean> {
 
     if (receiptsToPush.length > 0) {
       receiptsToPush.forEach((rc) => markRecentLocalAction(rc.id));
-      const rcPayload = receiptsToPush.map((rc) => ({
-        id: rc.id,
-        household_id: householdId,
-        list_id: rc.listId || null,
-        store_name: rc.storeName,
-        access_key: rc.accessKey || null,
-        total_amount: rc.totalAmount || 0,
-        purchase_date: rc.purchaseDate,
-        raw_type: rc.rawType || 'qr_code',
-        items: rc.items || [],
-        created_at: rc.createdAt
-      }));
-      const { error: pushRcErr } = await client.from('receipts').upsert(rcPayload, { onConflict: 'id' });
+      const { error: pushRcErr } = await upsertReceiptsWithFallback(client, householdId, receiptsToPush);
       if (!pushRcErr) {
         receiptsToPush.forEach((rc) => syncedIds.add(rc.id));
       }
@@ -1942,17 +1981,7 @@ export function setupRealtimeSubscriptions(): void {
           const existingRc = await db.receipts.get(rc.id);
           markIdsSynced(householdId, [rc.id]);
 
-          await db.receipts.put({
-            id: rc.id,
-            listId: rc.list_id || undefined,
-            storeName: rc.store_name,
-            accessKey: rc.access_key || undefined,
-            totalAmount: Number(rc.total_amount || 0),
-            purchaseDate: rc.purchase_date,
-            rawType: rc.raw_type || 'qr_code',
-            items: rc.items || [],
-            createdAt: rc.created_at
-          });
+          await db.receipts.put(mapRemoteReceipt(rc, existingRc));
 
           if (payload.eventType === 'INSERT' && !existingRc && !isRecentLocalAction(rc.id)) {
             const prefs = getNotificationPreferences();
@@ -2302,18 +2331,7 @@ export async function pushSingleReceipt(receipt: Receipt): Promise<void> {
   if (!client || !session || !navigator.onLine) return;
 
   try {
-    const { error } = await client.from('receipts').upsert({
-      id: receipt.id,
-      household_id: session.householdId,
-      list_id: receipt.listId || null,
-      store_name: receipt.storeName,
-      access_key: receipt.accessKey || null,
-      total_amount: receipt.totalAmount || 0,
-      purchase_date: receipt.purchaseDate,
-      raw_type: receipt.rawType || 'qr_code',
-      items: receipt.items || [],
-      created_at: receipt.createdAt
-    }, { onConflict: 'id' });
+    const { error } = await upsertReceiptsWithFallback(client, session.householdId, [receipt]);
 
     if (!error) {
       markIdsSynced(session.householdId, [receipt.id]);

@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS public.receipts (
   total_amount NUMERIC NOT NULL DEFAULT 0,
   purchase_date TIMESTAMPTZ DEFAULT NOW(),
   raw_type TEXT DEFAULT 'qr_code',
+  exclude_from_stats BOOLEAN DEFAULT FALSE,
   items JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );

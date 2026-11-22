@@ -170,6 +170,7 @@ export function useReceipts() {
       totalAmount: number;
       purchaseDate: string;
       rawType: 'qr_code' | 'xml' | 'ocr_image' | 'manual';
+      excludeFromStats?: boolean;
       items: ReceiptItem[];
     },
     reconciliationItems: ReconciliationItem[],
@@ -256,6 +257,8 @@ export function useReceipts() {
       }
     }
 
+    const priceOnlyMode = Boolean(receiptData.excludeFromStats);
+
     const receiptRecord: Receipt = {
       id: targetReceiptId,
       listId: targetListId,
@@ -264,6 +267,7 @@ export function useReceipts() {
       totalAmount: finalTotalAmount,
       purchaseDate,
       rawType: receiptData.rawType,
+      excludeFromStats: priceOnlyMode,
       items: finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items,
       createdAt: existingCreatedAt || new Date().toISOString()
     };
@@ -275,7 +279,7 @@ export function useReceipts() {
     for (const item of reconciliationItems) {
       // Matched item
       if (item.status === 'matched') {
-        if (item.listItemId) {
+        if (!priceOnlyMode && item.listItemId) {
           const updatedAt = new Date().toISOString();
           await db.shoppingListItems.update(item.listItemId, {
             name: item.name,
@@ -361,53 +365,55 @@ export function useReceipts() {
           }
         }
 
-        // Avoid duplicating checked shopping list items when re-importing the same receipt
-        let existingExtraItem: ShoppingListItem | undefined;
-        if (isReimport && prodId) {
-          const listItems = await db.shoppingListItems.where('listId').equals(targetListId).toArray();
-          existingExtraItem = listItems.find((li) => li.productId === prodId && li.isChecked);
-        }
+        if (!priceOnlyMode) {
+          // Avoid duplicating checked shopping list items when re-importing the same receipt
+          let existingExtraItem: ShoppingListItem | undefined;
+          if (isReimport && prodId) {
+            const listItems = await db.shoppingListItems.where('listId').equals(targetListId).toArray();
+            existingExtraItem = listItems.find((li) => li.productId === prodId && li.isChecked);
+          }
 
-        const now = new Date().toISOString();
-        if (existingExtraItem) {
-          const updatedExtra: ShoppingListItem = {
-            ...existingExtraItem,
-            name: item.name,
-            category: item.category,
-            brand: item.brand || existingExtraItem.brand,
-            imageUrl: item.imageUrl || existingExtraItem.imageUrl,
-            quantity: Number(item.quantity) || 1,
-            unit: (item.unit as any) || 'un',
-            averagePrice: item.unitPrice || existingExtraItem.averagePrice || 0,
-            lastPrice: item.unitPrice || existingExtraItem.lastPrice || 0,
-            isChecked: true,
-            updatedAt: now
-          };
-          await db.shoppingListItems.put(updatedExtra);
-          pushSingleItem(updatedExtra).catch(console.warn);
-        } else {
-          const author = await resolveCurrentItemAuthor();
-          const extraItem: ShoppingListItem = {
-            id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            listId: targetListId,
-            productId: prodId,
-            name: item.name,
-            category: item.category,
-            brand: item.brand,
-            imageUrl: item.imageUrl,
-            quantity: Number(item.quantity) || 1,
-            unit: (item.unit as any) || 'un',
-            averagePrice: item.unitPrice || 0,
-            lastPrice: item.unitPrice || 0,
-            isChecked: true,
-            addedByUserId: author.addedByUserId,
-            addedByMemberId: author.addedByMemberId,
-            addedByName: author.addedByName,
-            createdAt: now,
-            updatedAt: now
-          };
-          await db.shoppingListItems.add(extraItem);
-          pushSingleItem(extraItem).catch(console.warn);
+          const now = new Date().toISOString();
+          if (existingExtraItem) {
+            const updatedExtra: ShoppingListItem = {
+              ...existingExtraItem,
+              name: item.name,
+              category: item.category,
+              brand: item.brand || existingExtraItem.brand,
+              imageUrl: item.imageUrl || existingExtraItem.imageUrl,
+              quantity: Number(item.quantity) || 1,
+              unit: (item.unit as any) || 'un',
+              averagePrice: item.unitPrice || existingExtraItem.averagePrice || 0,
+              lastPrice: item.unitPrice || existingExtraItem.lastPrice || 0,
+              isChecked: true,
+              updatedAt: now
+            };
+            await db.shoppingListItems.put(updatedExtra);
+            pushSingleItem(updatedExtra).catch(console.warn);
+          } else {
+            const author = await resolveCurrentItemAuthor();
+            const extraItem: ShoppingListItem = {
+              id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              listId: targetListId,
+              productId: prodId,
+              name: item.name,
+              category: item.category,
+              brand: item.brand,
+              imageUrl: item.imageUrl,
+              quantity: Number(item.quantity) || 1,
+              unit: (item.unit as any) || 'un',
+              averagePrice: item.unitPrice || 0,
+              lastPrice: item.unitPrice || 0,
+              isChecked: true,
+              addedByUserId: author.addedByUserId,
+              addedByMemberId: author.addedByMemberId,
+              addedByName: author.addedByName,
+              createdAt: now,
+              updatedAt: now
+            };
+            await db.shoppingListItems.add(extraItem);
+            pushSingleItem(extraItem).catch(console.warn);
+          }
         }
 
         if (item.unitPrice) {
@@ -424,7 +430,7 @@ export function useReceipts() {
       }
 
       // Unbought item
-      if (item.status === 'unbought') {
+      if (!priceOnlyMode && item.status === 'unbought') {
         if (item.selectedAction === 'remove_from_list' && item.listItemId) {
           await db.shoppingListItems.delete(item.listItemId);
           deleteSingleItem(item.listItemId).catch(console.warn);
@@ -543,10 +549,24 @@ export function useReceipts() {
     }
   }
 
+  async function toggleReceiptExcludeFromStats(id: string): Promise<boolean | undefined> {
+    const existing = await db.receipts.get(id);
+    if (!existing) return undefined;
+
+    const updated: Receipt = {
+      ...existing,
+      excludeFromStats: !existing.excludeFromStats
+    };
+    await db.receipts.put(updated);
+    pushSingleReceipt(updated).catch(console.warn);
+    return updated.excludeFromStats;
+  }
+
   return {
     receipts,
     generateReconciliation,
     applyReconciliation,
-    deleteReceipt
+    deleteReceipt,
+    toggleReceiptExcludeFromStats
   };
 }

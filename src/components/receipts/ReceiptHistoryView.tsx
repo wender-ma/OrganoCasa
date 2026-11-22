@@ -10,7 +10,10 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
-  PieChart
+  PieChart,
+  Tag,
+  EyeOff,
+  Eye
 } from 'lucide-react';
 import { useReceipts } from '../../hooks/useReceipts';
 import { MonthlyComparisonModal } from './MonthlyComparisonModal';
@@ -25,7 +28,7 @@ interface ReceiptHistoryViewProps {
 }
 
 export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUpload }) => {
-  const { receipts, deleteReceipt } = useReceipts();
+  const { receipts, deleteReceipt, toggleReceiptExcludeFromStats } = useReceipts();
   const [expandedReceiptId, setExpandedReceiptId] = useState<string | null>(null);
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);
 
@@ -37,19 +40,22 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
   const currentMonthKey = getMonthKey(now);
   const prevMonthKey = shiftMonthKey(currentMonthKey, -1);
 
-  // Filter receipts for current month
-  const currentMonthReceipts = receipts.filter(
+  const countableReceipts = receipts.filter((r) => !r.excludeFromStats);
+  const excludedReceiptsCount = receipts.length - countableReceipts.length;
+
+  // Filter countable receipts for current month
+  const currentMonthReceipts = countableReceipts.filter(
     (r) => getMonthKey(parseReceiptDate(r.purchaseDate)) === currentMonthKey
   );
 
-  // Filter receipts for previous month
-  const prevMonthReceipts = receipts.filter(
+  // Filter countable receipts for previous month
+  const prevMonthReceipts = countableReceipts.filter(
     (r) => getMonthKey(parseReceiptDate(r.purchaseDate)) === prevMonthKey
   );
 
   const currentMonthTotal = currentMonthReceipts.reduce((sum, r) => sum + r.totalAmount, 0);
   const prevMonthTotal = prevMonthReceipts.reduce((sum, r) => sum + r.totalAmount, 0);
-  const totalSpentAllReceipts = receipts.reduce((sum, r) => sum + r.totalAmount, 0);
+  const totalSpentAllReceipts = countableReceipts.reduce((sum, r) => sum + r.totalAmount, 0);
 
   // Month-over-month comparison
   let momDiffPercent = 0;
@@ -57,9 +63,9 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
     momDiffPercent = ((currentMonthTotal - prevMonthTotal) / prevMonthTotal) * 100;
   }
 
-  // Find store frequency
+  // Find store frequency among countable receipts
   const storeCounts: Record<string, number> = {};
-  receipts.forEach((r) => {
+  countableReceipts.forEach((r) => {
     const s = r.storeName || 'Supermercado';
     storeCounts[s] = (storeCounts[s] || 0) + 1;
   });
@@ -78,6 +84,7 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
           </h2>
           <p className="text-xs text-indigo-200/90 mt-1">
             Gasto neste mês • {currentMonthReceipts.length} {currentMonthReceipts.length === 1 ? 'compra' : 'compras'}
+            {excludedReceiptsCount > 0 && ` • ${excludedReceiptsCount} só p/ preços`}
           </p>
         </div>
 
@@ -208,9 +215,17 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                        {rec.storeName || 'Supermercado'}
-                      </h4>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          {rec.storeName || 'Supermercado'}
+                        </h4>
+                        {rec.excludeFromStats && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 shrink-0">
+                            <Tag className="w-2.5 h-2.5" />
+                            <span>Somente preços</span>
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center space-x-2 text-[11px] text-slate-400 mt-0.5">
                         <span className="flex items-center space-x-1">
                           <Calendar className="w-3 h-3" />
@@ -224,11 +239,17 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
 
                   <div className="flex items-center space-x-3 pl-3">
                     <div className="text-right">
-                      <span className="text-sm font-black text-slate-900 dark:text-white block">
+                      <span
+                        className={`text-sm font-black block ${
+                          rec.excludeFromStats
+                            ? 'text-slate-400 dark:text-slate-500 line-through'
+                            : 'text-slate-900 dark:text-white'
+                        }`}
+                      >
                         R$ {rec.totalAmount.toFixed(2)}
                       </span>
                       <span className="text-[10px] text-slate-400 uppercase font-semibold">
-                        {rec.rawType}
+                        {rec.excludeFromStats ? 'Fora do mensal' : rec.rawType}
                       </span>
                     </div>
 
@@ -268,7 +289,32 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
                       </div>
                     )}
 
-                    <div className="pt-1 flex justify-end">
+                    <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleReceiptExcludeFromStats(rec.id);
+                        }}
+                        className={`px-3 py-1.5 text-xs font-semibold rounded-xl transition-colors flex items-center space-x-1.5 ${
+                          rec.excludeFromStats
+                            ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+                            : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50'
+                        }`}
+                      >
+                        {rec.excludeFromStats ? (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Incluir no custo mensal</span>
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-3.5 h-3.5" />
+                            <span>Tirar do custo mensal (só preços)</span>
+                          </>
+                        )}
+                      </button>
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

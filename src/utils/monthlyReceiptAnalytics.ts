@@ -48,6 +48,9 @@ export interface MonthlyReport {
   overallTotalSpent: number;
   overallAverageMonthly: number;
   activeMonthsCount: number;
+  countedReceiptsCount: number;
+  excludedReceiptsCount: number;
+  excludedTotalSpent: number;
   highestSpendMonth: MonthlyBucket | null;
   lowestSpendMonth: MonthlyBucket | null;
 }
@@ -216,8 +219,10 @@ function formatBRLCompact(value: number): number {
  */
 export function buildMonthlyReport(receipts: Receipt[], referenceDate = new Date()): MonthlyReport {
   const bucketMap: Record<string, MonthlyBucket> = {};
+  const countableReceipts = receipts.filter((r) => !r.excludeFromStats);
+  const excludedReceipts = receipts.filter((r) => Boolean(r.excludeFromStats));
 
-  for (const receipt of receipts) {
+  for (const receipt of countableReceipts) {
     const parsedDate = parseReceiptDate(receipt.purchaseDate);
     const monthKey = getMonthKey(parsedDate);
     if (!bucketMap[monthKey]) {
@@ -308,6 +313,11 @@ export function buildMonthlyReport(receipts: Receipt[], referenceDate = new Date
   const highestSpendMonth = sortedByTotal[0] || null;
   const lowestSpendMonth = sortedByTotal.length > 1 ? sortedByTotal[sortedByTotal.length - 1] : null;
 
+  const excludedReceiptsCount = excludedReceipts.length;
+  const excludedTotalSpent = formatBRLCompact(
+    excludedReceipts.reduce((sum, r) => sum + (Number(r.totalAmount) || 0), 0)
+  );
+
   return {
     bucketsDesc,
     bucketMap,
@@ -316,6 +326,9 @@ export function buildMonthlyReport(receipts: Receipt[], referenceDate = new Date
     overallTotalSpent,
     overallAverageMonthly,
     activeMonthsCount,
+    countedReceiptsCount: countableReceipts.length,
+    excludedReceiptsCount,
+    excludedTotalSpent,
     highestSpendMonth,
     lowestSpendMonth
   };

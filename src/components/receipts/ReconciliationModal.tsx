@@ -18,7 +18,8 @@ import {
   Clipboard,
   Camera,
   Check,
-  Loader2
+  Loader2,
+  Tag
 } from 'lucide-react';
 import { ReconciliationItem, ProductCategory, ProductUnit, ShoppingListItem } from '../../types';
 import { ParsedReceiptData, guessCategoryFromName, parseReceiptTextHeuristics } from '../../services/receiptParser';
@@ -65,6 +66,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
   const [items, setItems] = useState<ReconciliationItem[]>(initialItems);
   const [overrideTotalAmount, setOverrideTotalAmount] = useState<number | null>(null);
   const [isApplying, setIsApplying] = useState(false);
+  const [priceOnlyMode, setPriceOnlyMode] = useState(false);
   const [showPostAlert, setShowPostAlert] = useState(false);
   const [unboughtForAlert, setUnboughtForAlert] = useState<ReconciliationItem[]>([]);
 
@@ -96,6 +98,7 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
     if (isOpen) {
       setItems(initialItems);
       setOverrideTotalAmount(null);
+      setPriceOnlyMode(Boolean(receiptData?.excludeFromStats));
     }
   }, [isOpen, receiptData?.accessKey, receiptData?.purchaseDate]);
 
@@ -268,11 +271,12 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
     try {
       const updatedReceiptData: ParsedReceiptData = {
         ...receiptData,
+        excludeFromStats: priceOnlyMode,
         totalAmount: totalCalculated > 0 ? Number(totalCalculated.toFixed(2)) : effectiveReceiptTotal
       };
       await onConfirm(updatedReceiptData, items);
 
-      if (unboughtItems.length > 0) {
+      if (!priceOnlyMode && unboughtItems.length > 0) {
         sendLocalNotification('OrganoCasa: Itens pendentes', {
           body: `Você deixou de comprar ${unboughtItems.length} itens planejados da sua lista.`
         });
@@ -353,6 +357,29 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
                 R$ {totalCalculated > 0 ? totalCalculated.toFixed(2) : effectiveReceiptTotal.toFixed(2)}
               </strong>
             </div>
+          </div>
+
+          {/* Price-Only Mode Toggle */}
+          <div className="px-3.5 py-2.5 bg-amber-50/70 dark:bg-amber-950/25 border-b border-amber-200/70 dark:border-amber-900/50">
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={priceOnlyMode}
+                onChange={(e) => setPriceOnlyMode(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-amber-300"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900 dark:text-amber-200">
+                  <Tag className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span>Apenas para cadastro de preços (fora do custo mensal)</span>
+                </div>
+                <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 leading-snug mt-0.5">
+                  {priceOnlyMode
+                    ? 'Ativo: guarda os preços no catálogo sem somar nos gastos mensais e sem alterar sua lista de compras.'
+                    : 'Ideal para compras em conjunto/viagem em que você só quer aproveitar os preços dos produtos.'}
+                </p>
+              </div>
+            </label>
           </div>
 
           {/* Reconciliation Sections */}
@@ -682,7 +709,13 @@ export const ReconciliationModal: React.FC<ReconciliationModalProps> = ({
               disabled={isApplying}
               className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-md flex items-center justify-center space-x-2 transition-all"
             >
-              <span>{isApplying ? 'Atualizando Compras...' : 'Confirmar & Atualizar Preços'}</span>
+              <span>
+                {isApplying
+                  ? 'Atualizando Compras...'
+                  : priceOnlyMode
+                    ? 'Salvar Preços (Fora do Custo)'
+                    : 'Confirmar & Atualizar Preços'}
+              </span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>

@@ -84,6 +84,18 @@ const sampleReceipts = [
     rawType: 'manual',
     createdAt: '2026-08-03T09:00:00Z',
     items: []
+  },
+  {
+    id: 'r5-viagem',
+    storeName: 'Atacadão da Praia',
+    totalAmount: 1850,
+    purchaseDate: '2026-11-20T16:00:00Z',
+    rawType: 'qr_code',
+    excludeFromStats: true,
+    createdAt: '2026-11-20T16:00:00Z',
+    items: [
+      { name: 'Picanha Bovina', quantity: 10, unitPrice: 70, totalPrice: 700, unit: 'kg', category: 'Carnes e Aves' }
+    ]
   }
 ];
 
@@ -91,6 +103,9 @@ const refDate = new Date(2026, 10, 22, 12, 0, 0); // 2026-11-22
 const report = buildMonthlyReport(sampleReceipts, refDate);
 
 assert.strictEqual(report.activeMonthsCount, 3);
+assert.strictEqual(report.countedReceiptsCount, 4);
+assert.strictEqual(report.excludedReceiptsCount, 1);
+assert.strictEqual(report.excludedTotalSpent, 1850);
 assert.strictEqual(report.overallTotalSpent, 750);
 assert.strictEqual(report.overallAverageMonthly, 250);
 assert.strictEqual(report.bucketMap['2026-11'].totalAmount, 300);

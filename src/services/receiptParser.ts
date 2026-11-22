@@ -12,6 +12,7 @@ export interface ParsedReceiptData {
   totalAmount: number;
   purchaseDate: string;
   rawType: 'qr_code' | 'xml' | 'ocr_image' | 'manual';
+  excludeFromStats?: boolean;
   items: ReceiptItem[];
   sefazPortalUrl?: string;
   note?: string;
