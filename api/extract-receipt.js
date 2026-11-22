@@ -88,6 +88,11 @@ Analise todo o conteúdo visual e textual em conjunto. Caso haja múltiplas foto
 Retorne EXCLUSIVAMENTE um objeto JSON válido (sem blocos markdown) no seguinte formato exato:
 {
   "storeName": "Nome fantasia ou razão social do Supermercado (ex: SUPERMERCADO PRO BRASIL)",
+  "storeCnpj": "CNPJ do estabelecimento com 14 dígitos se visível no cabeçalho, ou string vazia",
+  "storeAddress": "Rua/Avenida e número do supermercado se visível no cabeçalho, ou string vazia",
+  "storeNeighborhood": "Bairro/Setor do supermercado se visível, ou string vazia",
+  "storeCity": "Cidade do supermercado se visível, ou string vazia",
+  "storeState": "Sigla UF com 2 letras (ex: GO, SP) se visível, ou string vazia",
   "accessKey": "Chave de acesso de 44 dígitos numéricos contínuos se visível, ou string vazia",
   "purchaseDate": "Data e hora da compra em formato ISO 8601 (YYYY-MM-DDTHH:mm:ss.000Z)",
   "totalAmount": 0.00,
@@ -159,8 +164,24 @@ function sanitizeExtractedData(parsedJson) {
     }
   }
 
+  const rawCnpj = String(parsedJson?.storeCnpj || '').replace(/\D/g, '');
+  const storeCnpj =
+    rawCnpj.length === 14
+      ? `${rawCnpj.slice(0, 2)}.${rawCnpj.slice(2, 5)}.${rawCnpj.slice(5, 8)}/${rawCnpj.slice(8, 12)}-${rawCnpj.slice(12, 14)}`
+      : undefined;
+  const cleanOptStr = (val) => {
+    const s = String(val || '').trim();
+    return s.length >= 2 ? s : undefined;
+  };
+  const rawState = String(parsedJson?.storeState || '').trim().toUpperCase();
+
   return {
     storeName: String(parsedJson?.storeName || 'Supermercado').trim() || 'Supermercado',
+    storeCnpj,
+    storeAddress: cleanOptStr(parsedJson?.storeAddress),
+    storeNeighborhood: cleanOptStr(parsedJson?.storeNeighborhood),
+    storeCity: cleanOptStr(parsedJson?.storeCity),
+    storeState: /^[A-Z]{2}$/.test(rawState) ? rawState : undefined,
     accessKey,
     totalAmount: Number(totalAmount.toFixed(2)),
     purchaseDate,

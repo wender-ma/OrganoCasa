@@ -264,9 +264,9 @@ export async function resolveCurrentItemAuthor(): Promise<ItemAuthorInfo> {
 }
 
 let shoppingItemAuthorColumnsSupported: boolean | null = null;
-let receiptExcludeStatsSupported: boolean | null = null;
+let receiptExtendedColumnsSupported: boolean | null = null;
 
-function isMissingColumnError(error: any, columnNeedle: string): boolean {
+function isMissingColumnError(error: any, ...columnNeedles: string[]): boolean {
   if (!error) return false;
   const code = String(error.code || '');
   const msg = String(error.message || '').toLowerCase();
@@ -274,8 +274,7 @@ function isMissingColumnError(error: any, columnNeedle: string): boolean {
   return (
     code === '42703' ||
     code === 'PGRST204' ||
-    msg.includes(columnNeedle) ||
-    details.includes(columnNeedle)
+    columnNeedles.some((needle) => msg.includes(needle) || details.includes(needle))
   );
 }
 
@@ -290,6 +289,11 @@ function mapRemoteReceipt(remoteRc: any, existingLocal?: Receipt): Receipt {
     id: remoteRc.id,
     listId: remoteRc.list_id || undefined,
     storeName: remoteRc.store_name,
+    storeCnpj: remoteRc.store_cnpj || existingLocal?.storeCnpj || undefined,
+    storeAddress: remoteRc.store_address || existingLocal?.storeAddress || undefined,
+    storeNeighborhood: remoteRc.store_neighborhood || existingLocal?.storeNeighborhood || undefined,
+    storeCity: remoteRc.store_city || existingLocal?.storeCity || undefined,
+    storeState: remoteRc.store_state || existingLocal?.storeState || undefined,
     accessKey: remoteRc.access_key || undefined,
     totalAmount: Number(remoteRc.total_amount || 0),
     purchaseDate: remoteRc.purchase_date,
@@ -305,7 +309,7 @@ function mapRemoteReceipt(remoteRc: any, existingLocal?: Receipt): Receipt {
 function buildReceiptPayload(
   receipt: Receipt,
   householdId: string,
-  includeExcludeColumn: boolean
+  includeExtendedColumns: boolean
 ): Record<string, any> {
   const payload: Record<string, any> = {
     id: receipt.id,
@@ -320,8 +324,13 @@ function buildReceiptPayload(
     created_at: receipt.createdAt
   };
 
-  if (includeExcludeColumn) {
+  if (includeExtendedColumns) {
     payload.exclude_from_stats = Boolean(receipt.excludeFromStats);
+    payload.store_cnpj = receipt.storeCnpj || null;
+    payload.store_address = receipt.storeAddress || null;
+    payload.store_neighborhood = receipt.storeNeighborhood || null;
+    payload.store_city = receipt.storeCity || null;
+    payload.store_state = receipt.storeState || null;
   }
 
   return payload;
@@ -332,18 +341,30 @@ async function upsertReceiptsWithFallback(
   householdId: string,
   receipts: Receipt[]
 ) {
-  const tryWithExclude = receiptExcludeStatsSupported !== false;
-  const payload = receipts.map((rc) => buildReceiptPayload(rc, householdId, tryWithExclude));
+  const tryExtended = receiptExtendedColumnsSupported !== false;
+  const payload = receipts.map((rc) => buildReceiptPayload(rc, householdId, tryExtended));
   const result = await client.from('receipts').upsert(payload, { onConflict: 'id' });
 
-  if (result.error && tryWithExclude && isMissingColumnError(result.error, 'exclude_from_stats')) {
-    receiptExcludeStatsSupported = false;
+  if (
+    result.error &&
+    tryExtended &&
+    isMissingColumnError(
+      result.error,
+      'exclude_from_stats',
+      'store_cnpj',
+      'store_address',
+      'store_neighborhood',
+      'store_city',
+      'store_state'
+    )
+  ) {
+    receiptExtendedColumnsSupported = false;
     const fallbackPayload = receipts.map((rc) => buildReceiptPayload(rc, householdId, false));
     return client.from('receipts').upsert(fallbackPayload, { onConflict: 'id' });
   }
 
-  if (!result.error && tryWithExclude) {
-    receiptExcludeStatsSupported = true;
+  if (!result.error && tryExtended) {
+    receiptExtendedColumnsSupported = true;
   }
 
   return result;

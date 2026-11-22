@@ -13,9 +13,12 @@ import {
   PieChart,
   Tag,
   EyeOff,
-  Eye
+  Eye,
+  MapPin,
+  ExternalLink
 } from 'lucide-react';
 import { useReceipts } from '../../hooks/useReceipts';
+import { buildGoogleMapsStoreUrl } from '../../services/communityPrices';
 import { MonthlyComparisonModal } from './MonthlyComparisonModal';
 import {
   getMonthKey,
@@ -226,13 +229,22 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center space-x-2 text-[11px] text-slate-400 mt-0.5">
+                      <div className="flex items-center space-x-2 text-[11px] text-slate-400 mt-0.5 flex-wrap">
                         <span className="flex items-center space-x-1">
                           <Calendar className="w-3 h-3" />
                           <span>{formattedDate}</span>
                         </span>
                         <span>•</span>
                         <span>{rec.items.length} itens</span>
+                        {rec.storeCity && (
+                          <>
+                            <span>•</span>
+                            <span>
+                              {rec.storeCity}
+                              {rec.storeState ? `-${rec.storeState}` : ''}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -282,6 +294,27 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
                         </div>
                       ))}
                     </div>
+
+                    {(rec.storeAddress || rec.storeCity || rec.storeName) && (
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px]">
+                        <span className="text-slate-500 dark:text-slate-400 truncate">
+                          {[rec.storeAddress, rec.storeNeighborhood, rec.storeCity, rec.storeState]
+                            .filter(Boolean)
+                            .join(' • ') || rec.storeName}
+                        </span>
+                        <a
+                          href={buildGoogleMapsStoreUrl(rec)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 font-bold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                        >
+                          <MapPin className="w-3 h-3" />
+                          <span>Google Maps</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      </div>
+                    )}
 
                     {rec.accessKey && (
                       <div className="pt-2 border-t border-slate-200 dark:border-slate-800 text-[10px] text-slate-400 truncate">

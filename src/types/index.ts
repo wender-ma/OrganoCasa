@@ -121,12 +121,37 @@ export interface Receipt {
   id: string;
   listId?: string;
   storeName: string;
+  storeCnpj?: string;
+  storeAddress?: string;
+  storeNeighborhood?: string;
+  storeCity?: string;
+  storeState?: string;
   accessKey?: string;
   totalAmount: number;
   purchaseDate: string;
   rawType: 'qr_code' | 'xml' | 'ocr_image' | 'manual';
   excludeFromStats?: boolean;
   items: ReceiptItem[];
+  createdAt: string;
+}
+
+export interface CommunityPriceRecord {
+  id: string;
+  sourceReceiptKey?: string;
+  barcode?: string;
+  normalizedKey: string;
+  productName: string;
+  brand?: string;
+  category: ProductCategory;
+  unit: string;
+  unitPrice: number;
+  storeName: string;
+  storeCnpj?: string;
+  storeAddress?: string;
+  storeNeighborhood?: string;
+  storeCity?: string;
+  storeState?: string;
+  observedAt: string;
   createdAt: string;
 }
 

@@ -205,6 +205,11 @@ export async function extractReceiptFromMultipleImages(
       const prompt = `Extraia todos os produtos e dados deste cupom fiscal/nota fiscal brasileira em JSON estrito:
 {
   "storeName": "Nome do Supermercado",
+  "storeCnpj": "CNPJ com 14 dígitos ou vazio",
+  "storeAddress": "Rua/Avenida e número do supermercado ou vazio",
+  "storeNeighborhood": "Bairro ou vazio",
+  "storeCity": "Cidade ou vazio",
+  "storeState": "UF com 2 letras (ex: GO, SP) ou vazio",
   "accessKey": "44 dígitos numéricos ou vazio",
   "purchaseDate": "ISO 8601",
   "totalAmount": 0.00,
@@ -274,6 +279,13 @@ export async function extractReceiptFromMultipleImages(
                 onProgress?.(100, 'Cupom processado com sucesso!');
                 return {
                   storeName: parsedJson.storeName || 'Supermercado',
+                  storeCnpj: parsedJson.storeCnpj || undefined,
+                  storeAddress: parsedJson.storeAddress || undefined,
+                  storeNeighborhood: parsedJson.storeNeighborhood || undefined,
+                  storeCity: parsedJson.storeCity || undefined,
+                  storeState: parsedJson.storeState
+                    ? String(parsedJson.storeState).trim().toUpperCase().slice(0, 2)
+                    : undefined,
                   accessKey: parsedJson.accessKey
                     ? String(parsedJson.accessKey).replace(/\D/g, '')
                     : undefined,

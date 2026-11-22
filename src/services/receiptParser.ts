@@ -8,6 +8,11 @@ export { guessCategoryFromName };
 
 export interface ParsedReceiptData {
   storeName: string;
+  storeCnpj?: string;
+  storeAddress?: string;
+  storeNeighborhood?: string;
+  storeCity?: string;
+  storeState?: string;
   accessKey?: string;
   totalAmount: number;
   purchaseDate: string;
@@ -32,12 +37,20 @@ export function parseSEFAZXml(xmlString: string): ParsedReceiptData {
     throw new Error('Formato XML inválido');
   }
 
-  // 1. Store Name
+  // 1. Store Name & Location
   let storeName = 'Supermercado';
   const emitNome = xmlDoc.querySelector('emit > xNome') || xmlDoc.querySelector('emit > xFant');
   if (emitNome && emitNome.textContent) {
     storeName = emitNome.textContent.trim();
   }
+  const emitCnpjRaw = xmlDoc.querySelector('emit > CNPJ')?.textContent?.replace(/\D/g, '') || '';
+  const storeCnpj = emitCnpjRaw.length === 14 ? formatCNPJ(emitCnpjRaw) : undefined;
+  const xLgr = xmlDoc.querySelector('emit > enderEmit > xLgr')?.textContent?.trim() || '';
+  const nro = xmlDoc.querySelector('emit > enderEmit > nro')?.textContent?.trim() || '';
+  const storeAddress = [xLgr, nro && nro !== 'S/N' ? nro : ''].filter(Boolean).join(', ') || undefined;
+  const storeNeighborhood = xmlDoc.querySelector('emit > enderEmit > xBairro')?.textContent?.trim() || undefined;
+  const storeCity = xmlDoc.querySelector('emit > enderEmit > xMun')?.textContent?.trim() || undefined;
+  const storeState = xmlDoc.querySelector('emit > enderEmit > UF')?.textContent?.trim()?.toUpperCase() || undefined;
 
   // 2. Access key (chNFe)
   let accessKey: string | undefined;
@@ -99,6 +112,11 @@ export function parseSEFAZXml(xmlString: string): ParsedReceiptData {
 
   return {
     storeName,
+    storeCnpj,
+    storeAddress,
+    storeNeighborhood,
+    storeCity,
+    storeState,
     accessKey,
     totalAmount: Number(totalAmount.toFixed(2)),
     purchaseDate,
@@ -270,6 +288,11 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
           if (sefazJson.success && Array.isArray(sefazJson.items) && sefazJson.items.length > 0) {
             return {
               storeName: sefazJson.storeName || storeName,
+              storeCnpj: sefazJson.storeCnpj || meta.cnpj,
+              storeAddress: sefazJson.storeAddress,
+              storeNeighborhood: sefazJson.storeNeighborhood,
+              storeCity: sefazJson.storeCity,
+              storeState: sefazJson.storeState,
               accessKey: sefazJson.accessKey || accessKey,
               totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
               purchaseDate: sefazJson.purchaseDate || purchaseDate,
@@ -288,6 +311,11 @@ export async function parseQRCodeUrl(qrCodeText: string): Promise<ParsedReceiptD
           } else if (sefazJson.success && sefazJson.storeName && sefazJson.storeName !== 'Supermercado') {
             return {
               storeName: sefazJson.storeName,
+              storeCnpj: sefazJson.storeCnpj || meta.cnpj,
+              storeAddress: sefazJson.storeAddress,
+              storeNeighborhood: sefazJson.storeNeighborhood,
+              storeCity: sefazJson.storeCity,
+              storeState: sefazJson.storeState,
               accessKey: sefazJson.accessKey || accessKey,
               totalAmount: sefazJson.totalAmount > 0 ? sefazJson.totalAmount : totalAmount,
               purchaseDate: sefazJson.purchaseDate || purchaseDate,

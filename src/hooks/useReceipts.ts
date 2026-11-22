@@ -10,6 +10,8 @@ import {
   ReconciliationItem
 } from '../types';
 import { guessCategoryFromName } from '../services/receiptParser';
+import { enrichReceiptStoreLocation } from '../services/cnpjEnricher';
+import { publishReceiptToCommunity } from '../services/communityPrices';
 import {
   pushSingleItem,
   deleteSingleItem,
@@ -166,6 +168,11 @@ export function useReceipts() {
   async function applyReconciliation(
     receiptData: {
       storeName: string;
+      storeCnpj?: string;
+      storeAddress?: string;
+      storeNeighborhood?: string;
+      storeCity?: string;
+      storeState?: string;
       accessKey?: string;
       totalAmount: number;
       purchaseDate: string;
@@ -258,22 +265,36 @@ export function useReceipts() {
     }
 
     const priceOnlyMode = Boolean(receiptData.excludeFromStats);
+    const itemsToSave = finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items;
 
-    const receiptRecord: Receipt = {
+    let receiptRecord: Receipt = {
       id: targetReceiptId,
       listId: targetListId,
       storeName: receiptData.storeName,
+      storeCnpj: receiptData.storeCnpj,
+      storeAddress: receiptData.storeAddress,
+      storeNeighborhood: receiptData.storeNeighborhood,
+      storeCity: receiptData.storeCity,
+      storeState: receiptData.storeState,
       accessKey: receiptData.accessKey,
       totalAmount: finalTotalAmount,
       purchaseDate,
       rawType: receiptData.rawType,
       excludeFromStats: priceOnlyMode,
-      items: finalReceiptItems.length > 0 ? finalReceiptItems : receiptData.items,
+      items: itemsToSave,
       createdAt: existingCreatedAt || new Date().toISOString()
     };
 
+    if ((!receiptRecord.storeCity || !receiptRecord.storeAddress) && (receiptRecord.accessKey || receiptRecord.storeCnpj)) {
+      const locPatch = await enrichReceiptStoreLocation(receiptRecord).catch(() => ({}));
+      if (Object.keys(locPatch).length > 0) {
+        receiptRecord = { ...receiptRecord, ...locPatch };
+      }
+    }
+
     await db.receipts.put(receiptRecord);
     await pushSingleReceipt(receiptRecord).catch(console.warn);
+    publishReceiptToCommunity(receiptRecord, itemsToSave).catch(console.warn);
 
     // 3. Process each item in reconciliation
     for (const item of reconciliationItems) {

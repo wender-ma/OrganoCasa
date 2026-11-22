@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Search, Tag, Plus, ShoppingCart, Edit2, Trash2, X, Save, Camera, Image as ImageIcon } from 'lucide-react';
+import { Search, Tag, Plus, ShoppingCart, Edit2, Trash2, X, Save, Camera, Image as ImageIcon, Globe2 } from 'lucide-react';
 import { Product, ProductCategory, ProductUnit } from '../../types';
 import { useProducts } from '../../hooks/useProducts';
 import { useShoppingList } from '../../hooks/useShoppingList';
 import { CategoryPills } from '../shopping/CategoryPills';
 import { PriceHistoryModal } from '../shopping/PriceHistoryModal';
+import { CommunityPricesView } from './CommunityPricesView';
 import { CATEGORY_ICONS, INITIAL_CATEGORIES } from '../../db/seed';
 import { compressImageFile } from '../../utils/imageCompressor';
 
@@ -13,6 +14,7 @@ export const ProductCatalogView: React.FC = () => {
   const { addItem, updateItemQuantity, items: currentListItems } = useShoppingList();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [catalogTab, setCatalogTab] = useState<'my_catalog' | 'community'>('my_catalog');
   const [selectedCategory, setSelectedCategory] = useState<ProductCategory | null>(null);
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -153,9 +155,41 @@ export const ProductCatalogView: React.FC = () => {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar por nome ou código de barras..."
+            placeholder={
+              catalogTab === 'community'
+                ? 'Buscar produto ou mercado na comunidade...'
+                : 'Buscar por nome ou código de barras...'
+            }
             className="w-full pl-10 pr-4 py-2.5 bg-slate-800/90 border border-slate-700 rounded-2xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
+        </div>
+
+        {/* Catalog vs Community Switcher */}
+        <div className="grid grid-cols-2 gap-1.5 mt-3 p-1 bg-slate-950/60 rounded-2xl border border-slate-700/70">
+          <button
+            type="button"
+            onClick={() => setCatalogTab('my_catalog')}
+            className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              catalogTab === 'my_catalog'
+                ? 'bg-emerald-500 text-white shadow-sm'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <Tag className="w-3.5 h-3.5" />
+            <span>Meu Catálogo ({products.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCatalogTab('community')}
+            className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              catalogTab === 'community'
+                ? 'bg-emerald-500 text-white shadow-sm'
+                : 'text-slate-300 hover:text-white'
+            }`}
+          >
+            <Globe2 className="w-3.5 h-3.5" />
+            <span>Comunidade & Região</span>
+          </button>
         </div>
       </div>
 
@@ -167,14 +201,18 @@ export const ProductCatalogView: React.FC = () => {
         </div>
       )}
 
-      {/* Category Pills */}
-      <CategoryPills
-        selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
-        categories={activeCatalogCategories}
-      />
+      {catalogTab === 'community' ? (
+        <CommunityPricesView searchQuery={searchQuery} />
+      ) : (
+        <>
+          {/* Category Pills */}
+          <CategoryPills
+            selectedCategory={selectedCategory}
+            onSelectCategory={setSelectedCategory}
+            categories={activeCatalogCategories}
+          />
 
-      {/* Products Grid */}
+          {/* Products Grid */}
       {filteredProducts.length === 0 ? (
         <div className="text-center py-12 px-4 bg-white dark:bg-slate-850 rounded-3xl border border-dashed border-slate-300 dark:border-slate-700 space-y-2">
           <Tag className="w-10 h-10 text-slate-400 mx-auto opacity-50" />
@@ -315,6 +353,8 @@ export const ProductCatalogView: React.FC = () => {
             );
           })}
         </div>
+      )}
+        </>
       )}
 
       {/* Edit Product Modal */}

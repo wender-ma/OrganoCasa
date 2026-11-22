@@ -107,7 +107,33 @@ CREATE TABLE IF NOT EXISTS public.receipts (
   purchase_date TIMESTAMPTZ DEFAULT NOW(),
   raw_type TEXT DEFAULT 'qr_code',
   exclude_from_stats BOOLEAN DEFAULT FALSE,
+  store_cnpj TEXT,
+  store_address TEXT,
+  store_neighborhood TEXT,
+  store_city TEXT,
+  store_state TEXT,
   items JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 9. Tabela Comunitária Anônima de Preços por Região/Supermercado
+CREATE TABLE IF NOT EXISTS public.community_prices (
+  id TEXT PRIMARY KEY,
+  source_receipt_key TEXT,
+  barcode TEXT,
+  normalized_key TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  brand TEXT,
+  category TEXT NOT NULL DEFAULT 'Outros',
+  unit TEXT NOT NULL DEFAULT 'un',
+  unit_price NUMERIC NOT NULL CHECK (unit_price > 0 AND unit_price < 50000),
+  store_name TEXT NOT NULL,
+  store_cnpj TEXT,
+  store_address TEXT,
+  store_neighborhood TEXT,
+  store_city TEXT,
+  store_state TEXT,
+  observed_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

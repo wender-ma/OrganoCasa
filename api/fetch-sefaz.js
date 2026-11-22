@@ -131,6 +131,10 @@ function parseSefazHtml(html, fallbackKey) {
     }
   }
 
+  // Extract optional CNPJ from HTML header
+  const cnpjMatch = html.match(/CNPJ:\s*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/i);
+  const storeCnpj = cnpjMatch ? cnpjMatch[1] : undefined;
+
   // 2. Extract Access Key if not present
   if (!accessKey) {
     const keyMatch =
@@ -248,6 +252,7 @@ function parseSefazHtml(html, fallbackKey) {
   return {
     success: items.length > 0,
     storeName,
+    storeCnpj,
     accessKey,
     totalAmount,
     purchaseDate,
@@ -428,11 +433,12 @@ async function fetchWithCookieJar(initialUrl, cookieJar, timeoutMs = 9000) {
 }
 
 /**
- * Enriches storeName via BrasilAPI CNPJ lookup when only 44-digit key is available
+ * Enriches storeName and full address via BrasilAPI/MinhaReceita CNPJ lookup from 44-digit key
  */
-async function lookupCnpjStoreName(accessKey) {
+async function lookupCnpjDetails(accessKey) {
   if (!accessKey || accessKey.length !== 44) return null;
   const cnpj = accessKey.substring(6, 20);
+  const formattedCnpj = `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12, 14)}`;
   const endpoints = [
     `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
     `https://minhareceita.org/${cnpj}`
@@ -448,14 +454,31 @@ async function lookupCnpjStoreName(accessKey) {
       });
       if (cnpjRes.ok) {
         const cData = await cnpjRes.json();
-        const rawName = cData.nome_fantasia || cData.razao_social;
-        if (rawName) {
-          return `${rawName}${cData.municipio ? ` (${cData.municipio} - ${cData.uf})` : ''}`;
-        }
+        const rawName = String(cData.nome_fantasia || cData.razao_social || '').trim();
+        const street = [cData.descricao_tipo_de_logradouro, cData.logradouro]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        const numero = cData.numero && String(cData.numero).trim() !== 'S/N' ? String(cData.numero).trim() : '';
+        const address = [street, numero].filter(Boolean).join(', ');
+        return {
+          storeName: rawName ? `${rawName}${cData.municipio ? ` (${cData.municipio} - ${cData.uf})` : ''}` : null,
+          rawStoreName: rawName || null,
+          storeCnpj: formattedCnpj,
+          storeAddress: address || undefined,
+          storeNeighborhood: cData.bairro ? String(cData.bairro).trim() : undefined,
+          storeCity: cData.municipio ? String(cData.municipio).trim() : undefined,
+          storeState: cData.uf ? String(cData.uf).trim().toUpperCase() : undefined
+        };
       }
     } catch {}
   }
-  return null;
+  return { storeCnpj: formattedCnpj };
+}
+
+async function lookupCnpjStoreName(accessKey) {
+  const details = await lookupCnpjDetails(accessKey);
+  return details?.storeName || null;
 }
 
 async function handler(req, res) {
@@ -599,13 +622,23 @@ async function handler(req, res) {
     const parsedData = finalHtml ? parseSefazHtml(finalHtml, accessKey) : null;
 
     if (parsedData && parsedData.items.length > 0) {
-      if (
-        (!parsedData.storeName || parsedData.storeName.startsWith('Supermercado')) &&
-        accessKey &&
-        accessKey.length === 44
-      ) {
-        const enrichedName = await lookupCnpjStoreName(accessKey);
-        if (enrichedName) parsedData.storeName = enrichedName;
+      if (accessKey && accessKey.length === 44) {
+        const details = await lookupCnpjDetails(accessKey);
+        if (details) {
+          if (
+            (!parsedData.storeName || parsedData.storeName.startsWith('Supermercado')) &&
+            details.storeName
+          ) {
+            parsedData.storeName = details.storeName;
+          }
+          if (!parsedData.storeCnpj && details.storeCnpj) parsedData.storeCnpj = details.storeCnpj;
+          if (!parsedData.storeAddress && details.storeAddress) parsedData.storeAddress = details.storeAddress;
+          if (!parsedData.storeNeighborhood && details.storeNeighborhood) {
+            parsedData.storeNeighborhood = details.storeNeighborhood;
+          }
+          if (!parsedData.storeCity && details.storeCity) parsedData.storeCity = details.storeCity;
+          if (!parsedData.storeState && details.storeState) parsedData.storeState = details.storeState;
+        }
       }
 
       res.status(200).json({
@@ -621,8 +654,8 @@ async function handler(req, res) {
 
     // 4. Honest fallback when SEFAZ is down (503), WAF-blocked, or raw 44-digit key requires CAPTCHA
     if (accessKey && accessKey.length === 44) {
-      const enrichedName = await lookupCnpjStoreName(accessKey);
-      const storeName = enrichedName || 'Supermercado (NFC-e)';
+      const details = await lookupCnpjDetails(accessKey);
+      const storeName = details?.storeName || 'Supermercado (NFC-e)';
       const yy = accessKey.substring(2, 4);
       const mm = accessKey.substring(4, 6);
       const emissionDate = new Date(
@@ -640,6 +673,11 @@ async function handler(req, res) {
       res.status(200).json({
         success: true,
         storeName,
+        storeCnpj: details?.storeCnpj,
+        storeAddress: details?.storeAddress,
+        storeNeighborhood: details?.storeNeighborhood,
+        storeCity: details?.storeCity,
+        storeState: details?.storeState,
         accessKey,
         totalAmount: 0,
         purchaseDate: emissionDate,
