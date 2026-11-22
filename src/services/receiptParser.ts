@@ -2,6 +2,9 @@ import { ProductCategory, ReceiptItem } from '../types';
 import { classifyScannedCode, parseNfceQrParams, inspectAccessKey } from './nfceClassifier';
 import { fetchProductByBarcode } from './openFoodFacts';
 import { db } from '../db/dexie';
+import { guessCategoryFromName } from '../utils/categoryMatcher';
+
+export { guessCategoryFromName };
 
 export interface ParsedReceiptData {
   storeName: string;
@@ -13,46 +16,6 @@ export interface ParsedReceiptData {
   sefazPortalUrl?: string;
   note?: string;
   requiresManualItems?: boolean;
-}
-
-/**
- * Intelligent categorization of raw receipt product descriptions
- */
-export function guessCategoryFromName(name: string): ProductCategory {
-  const n = name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  if (n.match(/banana|maca|mamao|laranja|limao|uva|alface|tomate|batata|cebola|cenoura|alho|abacate|manga|melancia|morango|abacaxi|brocolis|couve|ovos|ovo branco|ovo verm/)) {
-    return 'Hortifrúti';
-  }
-  if (n.match(/carne|alcatra|patinho|acem|contra file|costela|picanha|bacon|linguica|frango|coxa|sobrecoxa|peito frango|coracao|bife|peixe|tilapia|salmao|suino|charque|calabresa/)) {
-    return 'Carnes e Aves';
-  }
-  if (n.match(/leite|queijo|mussarela|mucarela|prato|parmesao|requeijao|iogurte|manteiga|margarina|presunto|mortadela|peito peru|creme de leite|creme leite|condensado/)) {
-    return 'Laticínios e Frios';
-  }
-  if (n.match(/pao|biscoito|bolacha|torrada|bolo|panetone|doce|chocolate|bombom|bala|sobremesa|gelatina|sonho|croissant/)) {
-    return 'Padaria e Sobremesas';
-  }
-  if (n.match(/refrigerante|soda|coca|guarana|fanta|sprite|pepsi|suco|nectar|cerveja|heineken|amstel|brahma|skol|spaten|agua|tonica|vinho|whisky|vodka|energetico|cha|cafe/)) {
-    return 'Bebidas';
-  }
-  if (n.match(/congelado|hamburguer|nuggets|lasanha|pizza|sorvete|acai|polpa|pao de queijo/)) {
-    return 'Congelados';
-  }
-  if (n.match(/detergente|sabao|lava roupas|amaciante|desinfetante|esponja|ype|limpador|veja|agua sanitaria|cloro|alvejante|papel toalha|lustra moveis|saco lixo/)) {
-    return 'Limpeza';
-  }
-  if (n.match(/shampoo|condicionador|sabonete|creme dental|pasta dente|colgate|oral b|desodorante|rexona|dove|papel hig|higiene|absorvente|fio dental|fralda|cotonete/)) {
-    return 'Higiene e Beleza';
-  }
-  if (n.match(/racao|whiskas|pedigree|golden|pet|gato|cao|cachorro|petisco|areia sanitaria/)) {
-    return 'Pet Shop';
-  }
-
-  return 'Mercearia';
 }
 
 /**

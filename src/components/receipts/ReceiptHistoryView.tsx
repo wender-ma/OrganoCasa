@@ -6,13 +6,19 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Trash2,
   TrendingDown,
   TrendingUp,
-  PieChart,
-  Award
+  PieChart
 } from 'lucide-react';
 import { useReceipts } from '../../hooks/useReceipts';
+import { MonthlyComparisonModal } from './MonthlyComparisonModal';
+import {
+  getMonthKey,
+  parseReceiptDate,
+  shiftMonthKey
+} from '../../utils/monthlyReceiptAnalytics';
 
 interface ReceiptHistoryViewProps {
   onOpenUpload: () => void;
@@ -21,29 +27,25 @@ interface ReceiptHistoryViewProps {
 export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUpload }) => {
   const { receipts, deleteReceipt } = useReceipts();
   const [expandedReceiptId, setExpandedReceiptId] = useState<string | null>(null);
-  const [showMonthlyAnalytics, setShowMonthlyAnalytics] = useState(true);
+  const [isComparisonOpen, setIsComparisonOpen] = useState(false);
 
   const toggleExpand = (id: string) => {
     setExpandedReceiptId(expandedReceiptId === id ? null : id);
   };
 
   const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
+  const currentMonthKey = getMonthKey(now);
+  const prevMonthKey = shiftMonthKey(currentMonthKey, -1);
 
   // Filter receipts for current month
-  const currentMonthReceipts = receipts.filter((r) => {
-    const d = new Date(r.purchaseDate);
-    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  });
+  const currentMonthReceipts = receipts.filter(
+    (r) => getMonthKey(parseReceiptDate(r.purchaseDate)) === currentMonthKey
+  );
 
   // Filter receipts for previous month
-  const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-  const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-  const prevMonthReceipts = receipts.filter((r) => {
-    const d = new Date(r.purchaseDate);
-    return d.getMonth() === prevMonth && d.getFullYear() === prevYear;
-  });
+  const prevMonthReceipts = receipts.filter(
+    (r) => getMonthKey(parseReceiptDate(r.purchaseDate)) === prevMonthKey
+  );
 
   const currentMonthTotal = currentMonthReceipts.reduce((sum, r) => sum + r.totalAmount, 0);
   const prevMonthTotal = prevMonthReceipts.reduce((sum, r) => sum + r.totalAmount, 0);
@@ -88,16 +90,21 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
         </button>
       </div>
 
-      {/* Monthly Analytics Card */}
-      {receipts.length > 0 && showMonthlyAnalytics && (
-        <div className="p-4 bg-white dark:bg-slate-850 rounded-2xl border border-slate-200/80 dark:border-slate-750 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
+      {/* Monthly Analytics Card (Click to open dedicated comparison panel) */}
+      {receipts.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setIsComparisonOpen(true)}
+          className="w-full text-left p-4 bg-white dark:bg-slate-850 rounded-2xl border border-slate-200/80 dark:border-slate-750 hover:border-indigo-400 dark:hover:border-indigo-500 shadow-xs hover:shadow-md transition-all space-y-3 cursor-pointer group active:scale-[0.99]"
+        >
+          <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <PieChart className="w-4 h-4 text-indigo-600" />
+              <PieChart className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               <span>Resumo & Comparativo Mensal</span>
             </span>
-            <span className="text-[10px] text-slate-400 font-semibold uppercase">
-              {now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/60 transition-colors">
+              <span>Ver detalhes</span>
+              <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
             </span>
           </div>
 
@@ -135,8 +142,21 @@ export const ReceiptHistoryView: React.FC<ReceiptHistoryViewProps> = ({ onOpenUp
               </strong>
             </div>
           </div>
-        </div>
+
+          <div className="text-[11px] text-slate-400 flex items-center justify-between pt-0.5">
+            <span>{now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</span>
+            <span className="text-indigo-600/80 dark:text-indigo-400/90 font-semibold">
+              Toque para abrir o comparativo mês a mês
+            </span>
+          </div>
+        </button>
       )}
+
+      <MonthlyComparisonModal
+        isOpen={isComparisonOpen}
+        onClose={() => setIsComparisonOpen(false)}
+        receipts={receipts}
+      />
 
       {/* Receipts list */}
       {receipts.length === 0 ? (
