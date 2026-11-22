@@ -15,22 +15,16 @@ import {
 import { ProductCategory, Product, ShoppingListItem, HouseholdMember } from '../../types';
 import { db } from '../../db/dexie';
 import { getCurrentSession, isSeedRecord } from '../../services/supabaseSync';
-import { useShoppingList } from '../../hooks/useShoppingList';
+import {
+  useShoppingList,
+  getShoppingItemMonthKey
+} from '../../hooks/useShoppingList';
 import { useProducts } from '../../hooks/useProducts';
 import { ShoppingItemCard } from './ShoppingItemCard';
 import { AddItemModal } from './AddItemModal';
 import { EditItemModal } from './EditItemModal';
 import { PriceHistoryModal } from './PriceHistoryModal';
 import { CATEGORY_ICONS, INITIAL_CATEGORIES } from '../../db/seed';
-
-function getItemMonthKey(item: ShoppingListItem): string {
-  const dateStr = item.updatedAt || item.createdAt;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 'outros';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
-}
 
 function formatMonthLabel(monthKey: string): string {
   if (monthKey === 'outros') return 'Outros Períodos';
@@ -148,17 +142,17 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
 
   // Itens finalizados do mês atual (ordem mais antigo primeiro na tela)
   const currentMonthCompletedItems = [...allCompletedItems.filter(
-    (item) => getItemMonthKey(item) === currentMonthKey
+    (item) => getShoppingItemMonthKey(item) === currentMonthKey
   )].reverse();
 
   // Itens finalizados de meses anteriores (histórico arquivado)
   const pastMonthsCompletedItems = allCompletedItems.filter(
-    (item) => getItemMonthKey(item) !== currentMonthKey
+    (item) => getShoppingItemMonthKey(item) !== currentMonthKey
   );
 
   // Agrupamento de meses passados por chave AAAA-MM
   const pastMonthsGroups = pastMonthsCompletedItems.reduce<Record<string, ShoppingListItem[]>>((acc, item) => {
-    const mKey = getItemMonthKey(item);
+    const mKey = getShoppingItemMonthKey(item);
     if (!acc[mKey]) acc[mKey] = [];
     acc[mKey].push(item);
     return acc;
@@ -220,7 +214,7 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
                 {checkedItemsCount}/{totalItemsCount}
               </span>
               <span className="text-xs font-semibold text-emerald-100 truncate">
-                itens comprados
+                itens em {currentMonthName}
               </span>
               <span className="text-[11px] font-bold bg-white/20 px-1.5 py-0.5 rounded-md leading-none shrink-0">
                 {progressPercentage}%
@@ -268,14 +262,14 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
           {/* Compact Financial Summary Row */}
           <div className="flex items-center justify-between text-[11px] text-emerald-100/90 font-medium pt-0.5">
             <div className="flex items-center space-x-1.5">
-              <span className="text-emerald-200/80 text-[10px]">No Carrinho:</span>
+              <span className="text-emerald-200/80 text-[10px]">No Carrinho (mês):</span>
               <span className="font-extrabold text-white text-xs sm:text-sm">
                 R$ {currentCartTotal.toFixed(2)}
               </span>
             </div>
 
             <div className="flex items-center space-x-1.5">
-              <span className="text-emerald-200/80 text-[10px]">Total Estimado:</span>
+              <span className="text-emerald-200/80 text-[10px]">Total do Mês:</span>
               <span className="font-bold text-emerald-100 text-xs sm:text-sm">
                 R$ {estimatedTotal.toFixed(2)}
               </span>

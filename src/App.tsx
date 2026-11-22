@@ -26,6 +26,7 @@ const AppContent: React.FC = () => {
     setActiveListId,
     createList,
     totalItemsCount,
+    checkedItemsCount,
     pendingItemsCount
   } = useShoppingList();
 
@@ -112,8 +113,8 @@ const AppContent: React.FC = () => {
         onSelectList={setActiveListId}
         onCreateList={createList}
         isOnline={isOnline}
-        itemsCount={items.length}
-        completedCount={items.filter((i) => i.isChecked).length}
+        itemsCount={totalItemsCount}
+        completedCount={checkedItemsCount}
       />
 
       {/* Main Content Area */}

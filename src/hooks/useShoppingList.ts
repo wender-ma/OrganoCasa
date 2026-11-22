@@ -12,6 +12,19 @@ import {
   resolveCurrentItemAuthor
 } from '../services/supabaseSync';
 
+export function getShoppingItemMonthKey(item: Pick<ShoppingListItem, 'updatedAt' | 'createdAt'>): string {
+  const dateStr = item.updatedAt || item.createdAt;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return 'outros';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+export function getCurrentCalendarMonthKey(referenceDate = new Date()): string {
+  return `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function useShoppingListState() {
   const [activeListId, setActiveListId] = useState<string>('list-default');
 
@@ -32,18 +45,25 @@ function useShoppingListState() {
     [activeListId]
   ) || [];
 
-  // Computed statistics
-  const totalItemsCount = items.length;
-  const checkedItemsCount = items.filter((i) => i.isChecked).length;
+  const currentMonthKey = getCurrentCalendarMonthKey();
+
+  // Current month scope: pending items (regardless of when added) + items bought in the current month
+  const currentMonthActiveItems = items.filter(
+    (i) => !i.isChecked || getShoppingItemMonthKey(i) === currentMonthKey
+  );
+
+  // Computed statistics (scoped to current month)
+  const totalItemsCount = currentMonthActiveItems.length;
+  const checkedItemsCount = currentMonthActiveItems.filter((i) => i.isChecked).length;
   const pendingItemsCount = items.filter((i) => !i.isChecked).length;
   const progressPercentage = totalItemsCount > 0 ? Math.round((checkedItemsCount / totalItemsCount) * 100) : 0;
 
-  const estimatedTotal = items.reduce((acc, item) => {
+  const estimatedTotal = currentMonthActiveItems.reduce((acc, item) => {
     const priceToUse = item.averagePrice > 0 ? item.averagePrice : item.lastPrice;
     return acc + priceToUse * item.quantity;
   }, 0);
 
-  const currentCartTotal = items
+  const currentCartTotal = currentMonthActiveItems
     .filter((i) => i.isChecked)
     .reduce((acc, item) => {
       const priceToUse = item.averagePrice > 0 ? item.averagePrice : item.lastPrice;
