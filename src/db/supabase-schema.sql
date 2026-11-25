@@ -168,6 +168,20 @@ ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reminders DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.receipts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.price_records DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.community_prices ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Leitura pública de preços comunitários" ON public.community_prices;
+CREATE POLICY "Leitura pública de preços comunitários" ON public.community_prices
+  FOR SELECT TO anon, authenticated USING (true);
+
+DROP POLICY IF EXISTS "Contribuição anônima de preços válidos" ON public.community_prices;
+CREATE POLICY "Contribuição anônima de preços válidos" ON public.community_prices
+  FOR INSERT TO anon, authenticated WITH CHECK (
+    unit_price > 0
+    AND unit_price < 50000
+    AND char_length(trim(product_name)) >= 2
+    AND char_length(trim(store_name)) >= 2
+  );
 
 -- Ativar Publicação Realtime para todas as tabelas (Sincronização instantânea entre celulares)
 ALTER PUBLICATION supabase_realtime ADD TABLE public.shopping_lists;

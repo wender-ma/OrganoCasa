@@ -919,7 +919,11 @@ CREATE TABLE IF NOT EXISTS public.reminders (id TEXT PRIMARY KEY, household_id T
 CREATE TABLE IF NOT EXISTS public.receipts (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, list_id TEXT, store_name TEXT NOT NULL, access_key TEXT, total_amount NUMERIC NOT NULL DEFAULT 0, purchase_date TIMESTAMPTZ DEFAULT NOW(), raw_type TEXT DEFAULT 'qr_code', exclude_from_stats BOOLEAN DEFAULT FALSE, store_cnpj TEXT, store_address TEXT, store_neighborhood TEXT, store_city TEXT, store_state TEXT, items JSONB DEFAULT '[]'::jsonb, created_at TIMESTAMPTZ DEFAULT NOW());
 ALTER TABLE public.receipts ADD COLUMN IF NOT EXISTS exclude_from_stats BOOLEAN DEFAULT FALSE, ADD COLUMN IF NOT EXISTS store_cnpj TEXT, ADD COLUMN IF NOT EXISTS store_address TEXT, ADD COLUMN IF NOT EXISTS store_neighborhood TEXT, ADD COLUMN IF NOT EXISTS store_city TEXT, ADD COLUMN IF NOT EXISTS store_state TEXT;
 CREATE TABLE IF NOT EXISTS public.community_prices (id TEXT PRIMARY KEY, source_receipt_key TEXT, barcode TEXT, normalized_key TEXT NOT NULL, product_name TEXT NOT NULL, brand TEXT, category TEXT NOT NULL DEFAULT 'Outros', unit TEXT NOT NULL DEFAULT 'un', unit_price NUMERIC NOT NULL, store_name TEXT NOT NULL, store_cnpj TEXT, store_address TEXT, store_neighborhood TEXT, store_city TEXT, store_state TEXT, observed_at TIMESTAMPTZ DEFAULT NOW(), created_at TIMESTAMPTZ DEFAULT NOW());
-ALTER TABLE public.community_prices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.community_prices ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Leitura pública de preços comunitários" ON public.community_prices;
+CREATE POLICY "Leitura pública de preços comunitários" ON public.community_prices FOR SELECT TO anon, authenticated USING (true);
+DROP POLICY IF EXISTS "Contribuição anônima de preços válidos" ON public.community_prices;
+CREATE POLICY "Contribuição anônima de preços válidos" ON public.community_prices FOR INSERT TO anon, authenticated WITH CHECK (unit_price > 0 AND unit_price < 50000 AND char_length(trim(product_name)) >= 2 AND char_length(trim(store_name)) >= 2);
 CREATE TABLE IF NOT EXISTS public.price_records (id TEXT PRIMARY KEY, household_id TEXT NOT NULL, product_id TEXT NOT NULL, receipt_id TEXT, price NUMERIC NOT NULL DEFAULT 0, quantity NUMERIC NOT NULL DEFAULT 1, unit TEXT NOT NULL DEFAULT 'un', store_name TEXT NOT NULL, date TIMESTAMPTZ DEFAULT NOW(), created_at TIMESTAMPTZ DEFAULT NOW());
 ALTER TABLE public.households DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.household_members DISABLE ROW LEVEL SECURITY;

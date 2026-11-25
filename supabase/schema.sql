@@ -185,6 +185,7 @@ ALTER TABLE public.shopping_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.shopping_list_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.community_prices ENABLE ROW LEVEL SECURITY;
 
 -- POLÍTICAS
 CREATE POLICY "Permitir leitura e escrita para membros" ON public.households
@@ -210,6 +211,17 @@ CREATE POLICY "Acesso a lembretes" ON public.reminders
 
 CREATE POLICY "Acesso a notas fiscais" ON public.receipts
   FOR ALL USING (true);
+
+CREATE POLICY "Leitura pública de preços comunitários" ON public.community_prices
+  FOR SELECT TO anon, authenticated USING (true);
+
+CREATE POLICY "Contribuição anônima de preços válidos" ON public.community_prices
+  FOR INSERT TO anon, authenticated WITH CHECK (
+    unit_price > 0
+    AND unit_price < 50000
+    AND char_length(trim(product_name)) >= 2
+    AND char_length(trim(store_name)) >= 2
+  );
 
 -- ==============================================================================
 -- HABILITAR REALTIME (TEMPO REAL VIA WEBSOCKETS)

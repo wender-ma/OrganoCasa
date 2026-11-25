@@ -221,7 +221,9 @@ export async function publishReceiptToCommunity(
   }
 
   try {
-    const { error } = await client.from('community_prices').upsert(rows, { onConflict: 'id' });
+    const { error } = await client
+      .from('community_prices')
+      .upsert(rows, { onConflict: 'id', ignoreDuplicates: true });
     if (error) {
       if (isMissingCommunityTableError(error)) {
         return { uploaded: 0, missingTable: true };
