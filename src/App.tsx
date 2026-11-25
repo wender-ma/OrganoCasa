@@ -120,7 +120,7 @@ const AppContent: React.FC = () => {
       {/* Main Content Area */}
       <main
         ref={mainScrollRef}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain"
       >
         <div className="max-w-2xl w-full mx-auto px-4 pt-3 pb-4 sm:p-5">
         {activeTab === 'shopping' && (

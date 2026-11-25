@@ -72,15 +72,15 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   return (
     <>
       <div
-        className={`grid transition-all duration-300 ease-in-out ${
+        className={`grid grid-cols-1 w-full transition-all duration-300 ease-in-out ${
           isRemoving
             ? 'grid-rows-[0fr] opacity-0 -translate-x-6 scale-95 pointer-events-none'
             : 'grid-rows-[1fr] opacity-100 translate-x-0 scale-100'
         }`}
       >
-        <div className={isRemoving ? 'overflow-hidden' : 'overflow-visible'}>
+        <div className={`min-w-0 w-full ${isRemoving ? 'overflow-hidden' : 'overflow-visible'}`}>
           <div
-            className={`group relative flex flex-col p-3 rounded-2xl border transition-all ease-out gap-2.5 ${
+            className={`group relative flex flex-col w-full min-w-0 p-3 rounded-2xl border transition-all ease-out gap-2.5 ${
               isRemoving
                 ? 'bg-rose-50/90 dark:bg-rose-950/60 border-rose-300 dark:border-rose-700/80 shadow-none duration-300'
                 : isCompleting
