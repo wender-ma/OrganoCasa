@@ -9,6 +9,7 @@ interface ShoppingItemCardProps {
   addedByMember?: HouseholdMember;
   isAddedBySelf?: boolean;
   isCompleting?: boolean;
+  isRemoving?: boolean;
   onToggle: (id: string) => void;
   onUpdateQuantity: (id: string, qty: number) => void;
   onRemove: (id: string) => void;
@@ -23,6 +24,7 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   addedByMember,
   isAddedBySelf = false,
   isCompleting = false,
+  isRemoving = false,
   onToggle,
   onUpdateQuantity,
   onRemove,
@@ -70,14 +72,24 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
   return (
     <>
       <div
-        className={`group relative flex flex-col p-3 rounded-2xl border transition-all duration-500 ease-out gap-2.5 ${
-          isCompleting
-            ? 'bg-emerald-50/90 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-600/80 shadow-md scale-[0.98] opacity-85 translate-x-1'
-            : item.isChecked
-            ? 'bg-slate-100/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800/70 opacity-75'
-            : 'bg-white dark:bg-slate-850 border-slate-200/80 dark:border-slate-750 shadow-xs hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700/60'
+        className={`grid transition-all duration-300 ease-in-out ${
+          isRemoving
+            ? 'grid-rows-[0fr] opacity-0 -translate-x-6 scale-95 pointer-events-none'
+            : 'grid-rows-[1fr] opacity-100 translate-x-0 scale-100'
         }`}
       >
+        <div className={isRemoving ? 'overflow-hidden' : 'overflow-visible'}>
+          <div
+            className={`group relative flex flex-col p-3 rounded-2xl border transition-all ease-out gap-2.5 ${
+              isRemoving
+                ? 'bg-rose-50/90 dark:bg-rose-950/60 border-rose-300 dark:border-rose-700/80 shadow-none duration-300'
+                : isCompleting
+                ? 'bg-emerald-50/90 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-600/80 shadow-md scale-[0.98] opacity-85 translate-x-1 duration-500'
+                : item.isChecked
+                ? 'bg-slate-100/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800/70 opacity-75 duration-500'
+                : 'bg-white dark:bg-slate-850 border-slate-200/80 dark:border-slate-750 shadow-xs hover:shadow-md hover:border-emerald-300 dark:hover:border-emerald-700/60 duration-500'
+            }`}
+          >
         {/* Main Row */}
         <div className="flex items-center justify-between">
           {/* Left: Checkbox & Image & Info */}
@@ -237,7 +249,12 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
             {/* Delete Item Button */}
             <button
               onClick={() => onRemove(item.id)}
-              className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors opacity-70 group-hover:opacity-100"
+              disabled={isRemoving}
+              className={`p-1.5 rounded-xl transition-all ${
+                isRemoving
+                  ? 'text-rose-600 bg-rose-100 dark:bg-rose-900/60 scale-110 opacity-100'
+                  : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 opacity-70 group-hover:opacity-100'
+              }`}
               aria-label="Remover item da lista"
             >
               <Trash2 className="w-4 h-4" />
@@ -295,6 +312,8 @@ export const ShoppingItemCard: React.FC<ShoppingItemCardProps> = ({
             })}
           </div>
         )}
+          </div>
+        </div>
       </div>
 
       {/* Product Packaging & Brand Zoom Modal */}

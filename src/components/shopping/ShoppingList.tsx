@@ -71,16 +71,29 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
   const [isCompletedExpanded, setIsCompletedExpanded] = useState(false);
   const [isPastMonthsExpanded, setIsPastMonthsExpanded] = useState(false);
   const [completingItemIds, setCompletingItemIds] = useState<Set<string>>(new Set());
+  const [removingItemIds, setRemovingItemIds] = useState<Set<string>>(new Set());
   const completingTimeoutsRef = React.useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const removingTimeoutsRef = React.useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  const clearPendingTimer = (mapRef: React.MutableRefObject<Map<string, NodeJS.Timeout>>, id: string) => {
+    const existing = mapRef.current.get(id);
+    if (existing) {
+      clearTimeout(existing);
+      mapRef.current.delete(id);
+    }
+  };
 
   React.useEffect(() => {
     return () => {
       completingTimeoutsRef.current.forEach((t) => clearTimeout(t));
       completingTimeoutsRef.current.clear();
+      removingTimeoutsRef.current.forEach((t) => clearTimeout(t));
+      removingTimeoutsRef.current.clear();
     };
   }, []);
 
   const handleToggleItem = (id: string) => {
+    if (removingItemIds.has(id)) return;
     const targetItem = items.find((i) => i.id === id);
     if (!targetItem) return;
 
@@ -107,6 +120,32 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
       // If unchecking from the completed aggregator, toggle immediately
       toggleItem(id);
     }
+  };
+
+  const handleRemoveItem = (id: string) => {
+    if (removingItemIds.has(id)) return;
+
+    clearPendingTimer(completingTimeoutsRef, id);
+    setCompletingItemIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
+    setRemovingItemIds((prev) => new Set(prev).add(id));
+
+    const timeout = setTimeout(() => {
+      removeItem(id);
+      setRemovingItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      removingTimeoutsRef.current.delete(id);
+    }, 340);
+
+    removingTimeoutsRef.current.set(id, timeout);
   };
 
   // Categorias ativas no momento (apenas categorias que possuem itens pendentes na lista)
@@ -189,9 +228,10 @@ export const ShoppingList: React.FC<ShoppingListProps> = ({ onOpenReceiptUpload 
         addedByMember={addedByMember}
         isAddedBySelf={isAddedBySelf}
         isCompleting={withCompleting ? completingItemIds.has(item.id) : false}
+        isRemoving={removingItemIds.has(item.id)}
         onToggle={handleToggleItem}
         onUpdateQuantity={updateItemQuantity}
-        onRemove={removeItem}
+        onRemove={handleRemoveItem}
         onOpenPriceHistory={(prod) => setSelectedProductForHistory(prod)}
         onEdit={(it) => setEditingItem(it)}
         onSelectBrand={handleSelectBrand}
